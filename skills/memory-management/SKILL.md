@@ -5,9 +5,13 @@ description: Read on sessions start. Manages persistent memory files across conv
 
 # Auto Memory
 
-You have a persistent auto memory via markdown files. The memory directory path is provided by the session-start hook. (e.g., `~/.cursor/projects/<project-id>/memory/MEMORY.md`).
-Its contents persist across conversations.
-As you work, consult your memory files to build on previous experience.
+You have a persistent auto memory via markdown files. Memory lives in **two linked locations** — they are the same files:
+
+- **Workspace**: `agent-docs/memory/MEMORY.md` (or `agent_docs/memory/`) — in the project repo, readable by all agents
+- **Cursor project**: `~/.cursor/projects/<project-id>/memory/` — symlinked to the workspace path above; loaded automatically at session start
+
+The session-start hook loads `MEMORY.md` into your context automatically (first 200 lines).
+As you work, consult the memory tree to build on previous experience.
 
 ## Tree structure
 

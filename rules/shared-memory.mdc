@@ -5,8 +5,13 @@ alwaysApply: true
 
 # Shared Memory
 
-This project stores persistent memory at `agent_docs/memory/MEMORY.md`.
-Both Cursor and Claude Code memory directories are symlinked there — all agents read and write the same files.
+This project stores persistent memory at `agent-docs/memory/MEMORY.md` (in the repo).
+The Cursor project memory (`~/.cursor/projects/<project-id>/memory/`) is symlinked to that directory — all agents (Cursor, Claude Code, etc.) read and write the same files.
+
+When the symlink is missing or broken, create it:
+```bash
+ln -s <workspace>/agent-docs/memory ~/.cursor/projects/<project-id>/memory
+```
 
 ## Tree structure
 
