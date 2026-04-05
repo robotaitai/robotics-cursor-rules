@@ -1,0 +1,66 @@
+---
+description: When onboarding an existing project, perform history backfill before normal steady-state memory maintenance.
+alwaysApply: false
+---
+
+# History Backfill
+
+After bootstrapping memory on a project with existing history, backfill the memory tree
+from evidence before proceeding with steady-state work.
+
+Apply this rule once per project. It is not needed on every session.
+
+---
+
+## When to apply
+
+Apply after `memory-bootstrap` when the project:
+- Has a git history with more than ~10 commits
+- Has existing documentation (README, CLAUDE.md, AGENTS.md, agent-docs/)
+- Has existing task files (`tasks/todo.md`, `tasks/lessons.md`)
+- Was previously worked on by another agent or developer
+
+Do NOT apply on every session — only when onboarding or when memory is newly empty.
+
+---
+
+## Steps (summary — full detail in skill)
+
+1. Read the `history-backfill` skill.
+2. Run `scripts/import-agent-history.sh .` to collect raw evidence.
+3. Read evidence files in priority order (existing-docs first, then manifests, structure, git).
+4. Distill stable facts into memory area files (Current State section).
+5. Record any architectural decisions found in `decisions/`.
+6. Update MEMORY.md one-line descriptions to reflect real content.
+7. Leave Open Questions for anything evidence hints at but doesn't resolve.
+
+---
+
+## Evidence sources (priority order)
+
+1. `agent-docs/evidence/existing-docs.txt` — README, CLAUDE.md, AGENTS.md (highest signal)
+2. `agent-docs/evidence/manifests.txt` — authoritative for stack
+3. `agent-docs/evidence/structure.txt` — actual architecture
+4. `agent-docs/evidence/tasks.txt` — active work areas and lessons
+5. `agent-docs/evidence/git-log-detail.txt` — why things changed
+6. `agent-docs/evidence/git-log.txt` — what changed over time
+7. `agent-docs/evidence/ci-workflows.txt` — build and deploy requirements
+
+---
+
+## Separation principle
+
+Evidence (`agent-docs/evidence/`) is raw input — overwritten on each script run.
+Memory (`agent-docs/memory/`) is curated output — maintained by the writeback rule.
+
+Never write evidence files into memory. Never treat a single evidence source as truth
+without corroboration.
+
+---
+
+## After backfill
+
+Switch to normal steady-state operation:
+- Apply `memory-writeback` rule after each meaningful task
+- Apply `memory-compaction` skill when files grow large
+- Do NOT re-run history backfill unless memory is reset or significantly corrupted

@@ -61,3 +61,27 @@ alwaysApply: true
 - **Simplicity First**: Make every change as simple as possible. Impact minimal code.
 - **No Laziness**: Find root causes. No temporary fixes. Senior developer standards.
 - **Minimal Impact**: Changes should only touch what is necessary. Avoid introducing bugs.
+
+## Memory Flow
+
+Session lifecycle includes memory at start and end:
+
+```
+session start
+  ├─ check memory-bootstrap rule (bootstrap if MEMORY.md missing or generic)
+  ├─ read MEMORY.md and relevant area files
+  └─ read session-management skill
+
+plan → execute → verify
+  └─ update session file at milestones
+
+session end
+  ├─ evaluate writeback: did this session produce durable knowledge?
+  ├─ if yes: apply memory-writeback rule (area files + decisions/ as needed)
+  └─ if no: state "Memory writeback: none needed."
+```
+
+For new or inherited projects, insert **history backfill** after bootstrap:
+```
+bootstrap → import-agent-history.sh → history-backfill skill → steady-state
+```

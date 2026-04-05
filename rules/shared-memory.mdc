@@ -18,7 +18,7 @@ ln -s <workspace>/agent-docs/memory ~/.cursor/projects/<project-id>/memory
 Memory is organized as a **tree**. Agents load only the branches relevant to their current task.
 
 ```
-agent_docs/memory/
+agent-docs/memory/
   MEMORY.md              ← root index — always loaded, max ~200 lines
   <area>.md              ← one file per functional area (branch node)
   <area>/<subtopic>.md   ← deep detail for a sub-area (leaf node)
@@ -76,3 +76,12 @@ Do NOT save: in-progress task state, speculative plans, or anything already in g
 ## Format
 
 Lead with the fact. For feedback/lessons: add a **Why:** line and a **How to apply:** line so future agents understand the context, not just the rule.
+
+## v2 extensions
+
+- **Bootstrap**: if `agent-docs/memory/MEMORY.md` is missing, apply the `memory-bootstrap` rule before any other work.
+- **Writeback**: after meaningful state changes, apply the `memory-writeback` rule.
+- **Backfill**: when memory is sparse and the repo has history, apply the `history-backfill` rule.
+- **Decisions**: record architecture decisions with the `decision-recording` skill.
+- **Compaction**: when files grow large, apply the `memory-compaction` skill.
+- **Evidence**: raw evidence lives in `agent-docs/evidence/` — never mix with curated memory.

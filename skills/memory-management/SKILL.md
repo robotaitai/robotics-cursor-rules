@@ -1,80 +1,121 @@
 ---
 name: memory-management
-description: Read on sessions start. Manages persistent memory files across conversations. Use when recording learnings, updating MEMORY.md, creating topic files, or when the session-start hook injects memory context.
+description: Read on session start. Manages persistent memory files across conversations. Use when recording learnings, updating MEMORY.md, creating topic files, or when the session-start hook injects memory context.
 ---
 
-# Auto Memory
+# Memory Management
 
-You have a persistent auto memory via markdown files. Memory lives in **two linked locations** — they are the same files:
+Manages the project memory tree. Read this skill at session start.
 
-- **Workspace**: `agent-docs/memory/MEMORY.md` (or `agent_docs/memory/`) — in the project repo, readable by all agents
-- **Cursor project**: `~/.cursor/projects/<project-id>/memory/` — symlinked to the workspace path above; loaded automatically at session start
+The memory directory path is provided by the session-start hook
+(e.g., `~/.cursor/projects/<project-id>/memory/MEMORY.md`).
+For project-shared memory, the canonical location is `agent-docs/memory/MEMORY.md` in the repo,
+symlinked to the Cursor memory path.
 
-The session-start hook loads `MEMORY.md` into your context automatically (first 200 lines).
-As you work, consult the memory tree to build on previous experience.
+---
 
 ## Tree structure
 
-Memory is a **tree**. Load only the branch you need.
-
 ```
-MEMORY.md                 ← root index — always loaded, stays under 200 lines
-<area>.md                 ← one file per functional area (branch node)
-<area>/<subtopic>.md      ← deep detail (leaf node), created only when area file > ~150 lines
-```
-
-### Reading
-
-1. `MEMORY.md` is always loaded. It is an index only — short entry + relative link per area.
-2. At session start, identify which area(s) your task touches.
-3. Read the relevant area file(s) before starting work.
-4. If an area file links to a sub-topic you need, read that too.
-5. Ignore branches unrelated to your task.
-
-### Writing
-
-- **MEMORY.md**: one-line summary + relative link per area. Do not put detail here.
-- **Area file** (`<area>.md`): all stable facts, decisions, gotchas, and patterns for that area.
-- **Sub-topic file** (`<area>/<subtopic>.md`): create only when an area grows beyond ~150 lines.
-  When you create one, replace the inline detail in the area file with a link.
-
-### Example root index entry
-
-```markdown
-## OCR Pipeline
-Paperwork intake, zip upload, review queue, per-tenant credential resolution.
-→ [ocr.md](ocr.md)
+agent-docs/memory/
+  MEMORY.md              ← root index — always loaded, max ~200 lines
+  <area>.md              ← one file per functional area
+  <area>/<subtopic>.md   ← sub-file when an area file exceeds ~150 lines
+  decisions/
+    INDEX.md             ← decision index, newest first
+    YYYY-MM-DD-slug.md   ← one decision record per choice
+agent-docs/evidence/
+  git-log.txt            ← raw evidence — never edit, re-collect with import script
+  ...
 ```
 
-## How to save memories: <!-- markdownlint-disable-line MD026 -->
+Evidence (`agent-docs/evidence/`) is separate from curated memory (`agent-docs/memory/`).
+Never copy raw evidence into memory. Distill only stable, verified facts.
 
-- Organize memory semantically by area/topic, not chronologically
-- Use the Write and Edit tools to update memory files
-- `MEMORY.md` stays under 200 lines — it is an index, not a detail store
-- Put detail in area files; put deep detail in sub-topic files under the area directory
-- Update or remove memories that turn out to be wrong or outdated
-- Do not write duplicate memories. Check existing files before writing a new entry.
+---
 
-## What to save: <!-- markdownlint-disable-line MD026 -->
+## Profile-adaptive branches
 
-- Stable patterns and conventions confirmed across multiple interactions
-- Key architectural decisions, important file paths, and project structure
-- User preferences for workflow, tools, and communication style
-- Solutions to recurring problems and debugging insights
+The areas in the memory tree depend on the project profile detected at bootstrap:
 
-## What NOT to save: <!-- markdownlint-disable-line MD026 -->
+| Profile | Initial areas |
+|---------|--------------|
+| web-app | stack, architecture, conventions, gotchas, integrations |
+| robotics | stack, architecture, conventions, gotchas, hardware, simulation |
+| ml-platform | stack, architecture, conventions, gotchas, datasets, models |
+| hybrid | stack, architecture, conventions, gotchas, deployments |
 
-- Session-specific context (current task details, in-progress work, temporary
-  state)
-- Information that might be incomplete — verify against project docs before
-  writing
-- Anything that duplicates or contradicts higher-priority instructions
-- Speculative or unverified conclusions from reading a single file
+The profile is recorded in MEMORY.md's header comment.
+Add or remove area files as the project grows or shrinks.
 
-## Explicit user requests: <!-- markdownlint-disable-line MD026 -->
-  
-- When the user asks you to remember something across sessions (for example, "always
-  use bun", "never auto-commit"), save it — no need to wait for multiple
-  interactions
-- When the user asks to forget or stop remembering something, remove the relevant
-  entries from your memory files
+---
+
+## Required sections per area node
+
+Every area file uses these sections (from `area.template.md`):
+
+| Section | Content | Updated when |
+|---------|---------|--------------|
+| **Purpose** | One sentence: what this area covers | At creation; rarely changes |
+| **Current State** | Verified facts about what is true now | Every writeback |
+| **Recent Changes** | Rolling log, YYYY-MM-DD format, pruned after ~4 weeks | After meaningful changes |
+| **Decisions** | Links to `decisions/YYYY-MM-DD-slug.md` | When a decision is recorded |
+| **Open Questions** | Unresolved items for future sessions | When a question is identified; removed when resolved |
+| **Subtopics** | Links to sub-files | When the area is split |
+
+---
+
+## Reading the tree
+
+1. `MEMORY.md` loads automatically — it is the index only.
+2. Identify which area(s) your task touches from the index.
+3. Read only those area files — keep context lean.
+4. Follow subtopic links only if the specific detail is needed.
+
+---
+
+## Writing to the tree
+
+- **MEMORY.md**: one-line description per area + link. No inline detail.
+- **Area file**: all facts for that area, organized by section.
+- **Decision file**: one file per architectural decision, linked from the area.
+
+Format for facts: lead with the fact. For lessons: add **Why:** and **How to apply:**.
+
+---
+
+## Bootstrap
+
+If `agent-docs/memory/MEMORY.md` is missing or empty:
+→ Read and follow the `project-ontology-bootstrap` skill before any other work.
+
+---
+
+## When to write back
+
+Write to memory when any of these happen:
+- A new architectural decision is made
+- A pattern or convention is confirmed
+- A gotcha is discovered
+- A feature area is substantially completed or changed
+- A recurring mistake is corrected
+
+Do NOT write:
+- In-progress task state → session file only
+- Speculative plans → wait until confirmed
+- Facts already in git history that are easily re-discoverable
+
+---
+
+## Compaction
+
+When MEMORY.md approaches 200 lines or an area file exceeds ~150 lines:
+→ Read and follow the `memory-compaction` skill.
+
+---
+
+## Explicit user requests
+
+- "Remember X" → save it immediately to the relevant area file
+- "Forget X" → remove or mark stale in the relevant area file
+- "Why did we choose X" → read `decisions/INDEX.md` and the linked decision file

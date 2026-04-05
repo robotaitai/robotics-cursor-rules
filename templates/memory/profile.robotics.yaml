@@ -1,0 +1,14 @@
+# Profile: robotics
+# Detected by: CMakeLists.txt + package.xml, or ROS-specific directories (src/, launch/, urdf/)
+# Covers: ROS/ROS2 systems, embedded firmware, hardware-software stacks
+
+profile: robotics
+areas: [stack, architecture, conventions, gotchas, hardware, simulation]
+
+area_hints:
+  stack: "ROS version, language mix (C++/Python/Rust), build system, key packages"
+  architecture: "Node graph, topic/service/action topology, package boundaries, launch structure"
+  conventions: "Package naming, topic naming schema, message type conventions, coding standards"
+  gotchas: "Workspace sourcing, build order dependencies, hardware-specific constraints, timing issues"
+  hardware: "Sensors, actuators, calibration state, known hardware-specific limitations"
+  simulation: "Sim environment (Gazebo/Isaac/etc), world files, test scenarios, sim vs real gaps"

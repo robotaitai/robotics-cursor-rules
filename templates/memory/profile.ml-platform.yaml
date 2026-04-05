@@ -1,0 +1,14 @@
+# Profile: ml-platform
+# Detected by: pyproject.toml or requirements.txt with ML libs + notebooks/ or models/ or data/ dirs
+# Covers: ML pipelines, model training/serving, data engineering, experiment tracking
+
+profile: ml-platform
+areas: [stack, architecture, conventions, gotchas, datasets, models]
+
+area_hints:
+  stack: "Framework (PyTorch/JAX/TF), orchestration (Ray/Airflow/Prefect), serving layer, artifact storage"
+  architecture: "Pipeline stages, feature store, model registry, experiment tracking, deployment targets"
+  conventions: "Experiment naming, artifact path schema, config management (hydra/yaml), notebook hygiene"
+  gotchas: "GPU/env setup, data versioning, non-determinism sources, scale limits, dependency conflicts"
+  datasets: "Data sources, schema, version lineage, known quality issues, access patterns"
+  models: "Active models in production, evaluation baselines, versioning scheme, rollback procedure"

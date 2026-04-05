@@ -1,0 +1,13 @@
+# Profile: web-app
+# Detected by: package.json with a frontend framework dependency (react, next, vue, svelte, angular)
+# Covers: SPA, SSR, fullstack web apps, API-backed frontends
+
+profile: web-app
+areas: [stack, architecture, conventions, gotchas, integrations]
+
+area_hints:
+  stack: "Frontend framework, backend runtime, database, auth provider, hosting platform"
+  architecture: "Routing, component model, API design, SSR/CSR boundary, state management"
+  conventions: "File naming, component structure, API naming, test patterns, import style"
+  gotchas: "Build quirks, env var handling, CORS, auth edge cases, deploy pitfalls"
+  integrations: "Third-party APIs, webhooks, payment, analytics, email, storage"

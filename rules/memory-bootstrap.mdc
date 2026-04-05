@@ -1,0 +1,51 @@
+---
+description: If the project memory tree is missing or obviously generic, bootstrap it before starting heavy work.
+alwaysApply: true
+---
+
+# Memory Bootstrap
+
+Check for a valid memory tree at the start of any session that involves real project work.
+If missing or empty, bootstrap it first.
+
+---
+
+## Check condition
+
+Look for `agent-docs/memory/MEMORY.md` in the project root.
+
+| State | Action |
+|-------|--------|
+| File exists and has real content (not just template placeholders) | Skip — proceed with the task |
+| File exists but contains only `<placeholder:...>` entries | Re-bootstrap: read `project-ontology-bootstrap` skill |
+| File is missing or empty | Bootstrap: read `project-ontology-bootstrap` skill |
+
+"Real content" means at least one area has a **Current State** entry that isn't a TODO marker.
+
+---
+
+## Bootstrap steps (summary — full detail in skill)
+
+1. Read the `project-ontology-bootstrap` skill.
+2. Detect project type from repo structure and manifests.
+3. Select the matching profile from `templates/memory/profile.<type>.yaml`.
+4. Run `scripts/bootstrap-memory-tree.sh .` (or follow the skill manually).
+5. Populate what you can immediately from reading the repo.
+6. Collect evidence: `scripts/import-agent-history.sh .`
+7. Follow `history-backfill` skill to populate from evidence.
+8. Confirm the tree is in place before proceeding with the user's task.
+
+---
+
+## When to skip
+
+- Memory tree exists with real content → always skip, do not re-bootstrap
+- User explicitly asked to skip bootstrap → skip for this session only
+- The task is purely read-only exploration → bootstrap is optional (do it anyway if convenient)
+
+---
+
+## After bootstrap
+
+Apply the `history-backfill` rule if the project has existing history (git log, docs, sessions).
+Then proceed with the user's task, applying the `memory-writeback` rule as work proceeds.

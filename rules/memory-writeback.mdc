@@ -1,0 +1,85 @@
+---
+description: After meaningful project state changes, update the correct memory branch — or explicitly state no update is needed.
+alwaysApply: true
+---
+
+# Memory Writeback
+
+After completing any task, evaluate whether durable knowledge was produced.
+If yes, write it to memory before the session ends.
+If no, state that explicitly so the rule is visibly satisfied.
+
+---
+
+## Evaluation — ask after every meaningful task
+
+> "Did this session produce a fact that future agents will need and cannot easily re-derive?"
+
+Write to memory if the answer is yes for any of:
+- An architectural decision was made or reversed
+- A new pattern or convention was confirmed
+- A critical gotcha was discovered (build, DB, API, environment, path)
+- A feature area was substantially completed or its design changed
+- A recurring mistake was corrected (record the lesson)
+- A dependency or external constraint changed
+
+Skip writeback if:
+- The session was read-only exploration with no new conclusions
+- The change is already captured in git or inline documentation
+- The fact is session-specific and won't matter in a future session
+- The fact is speculative and not yet confirmed
+
+When skipping, state it: **Memory writeback: none needed.**
+
+---
+
+## What to write and where
+
+| Fact type | Target |
+|-----------|--------|
+| Architectural decision | `decisions/YYYY-MM-DD-slug.md` + link from area file |
+| New pattern / convention | `conventions.md` → Current State |
+| Gotcha or constraint | `gotchas.md` → Current State |
+| Stack change | `stack.md` → Current State + Recent Changes |
+| Completed feature area | relevant area file → Current State |
+| Lesson from a mistake | relevant area file → Current State, with **Why:** and **How to apply:** |
+
+---
+
+## How to write
+
+1. Identify the target area file.
+2. Read its current content.
+3. Add or update the fact in the correct section.
+   - **Current State**: what is true now (replace stale entries, don't append duplicates)
+   - **Recent Changes**: YYYY-MM-DD — what changed (prune entries older than ~4 weeks)
+   - **Decisions**: link to decision file
+4. If the area file now exceeds ~150 lines, follow the `memory-compaction` skill.
+5. Update MEMORY.md one-line description if the area's scope changed.
+
+For architectural decisions, use the `decision-recording` skill — do not inline them.
+
+---
+
+## Format
+
+Lead with the fact:
+```
+Raw SQL + pgtyped types for all DB access. No ORM.
+```
+
+For lessons, add context:
+```
+Yarn is not in PATH on this machine — use node .yarn/releases/yarn-4.x.cjs directly.
+Why: the repo uses Yarn 4 via Corepack, not the global yarn binary.
+How to apply: always invoke yarn via the release script, never via yarn directly.
+```
+
+---
+
+## Composability
+
+- Uses `memory-management` skill for file locations and structure
+- Uses `decision-recording` skill for architecture decisions
+- Uses `memory-compaction` skill when files grow large
+- Feeds from the `session-management` writeback gate

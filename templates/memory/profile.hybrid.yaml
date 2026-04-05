@@ -1,0 +1,13 @@
+# Profile: hybrid
+# Detected by: multiple language manifests, packages/ or services/ or apps/ subdirs, or workspace file
+# Covers: monorepos, multi-service systems, projects spanning multiple technical domains
+
+profile: hybrid
+areas: [stack, architecture, conventions, gotchas, deployments]
+
+area_hints:
+  stack: "All runtimes, languages, and frameworks across packages; shared tooling (nx, turborepo, yarn workspaces)"
+  architecture: "Service/package boundaries, inter-service communication, shared contracts (GraphQL schema, protobuf)"
+  conventions: "Cross-package naming, shared lint/test config, monorepo-specific import rules"
+  gotchas: "Build order dependencies, shared env vars, cross-service integration quirks, workspace resolution"
+  deployments: "Per-service deployment targets, CI/CD pipeline structure, environment promotion flow"
