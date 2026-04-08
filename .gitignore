@@ -4,6 +4,18 @@
 .DS_Store
 __pycache__/
 *.pyc
+*.egg-info/
+dist/
+build/
+*.whl
+.eggs/
+.venv/
+.pytest_cache/
 
-# Local testing for a repo-root connected-project knowledge pointer.
-/agent-knowledge/
+# Local project knowledge (created by agent-knowledge init on this repo)
+/agent-knowledge
+/.agent-project.yaml
+/.agentknowledgeignore
+/AGENTS.md
+/CLAUDE.md
+/.cursor/hooks.json

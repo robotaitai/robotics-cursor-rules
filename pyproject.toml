@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agent-knowledge"
+version = "0.0.1"
+description = "Adaptive, file-based project knowledge for AI coding agents"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "agent-knowledge contributors" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Documentation",
+]
+dependencies = ["click>=8.0"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "build"]
+tokens = ["tiktoken"]
+
+[project.scripts]
+agent-knowledge = "agent_knowledge.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent_knowledge"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"assets/scripts" = "agent_knowledge/assets/scripts"
+"assets/templates" = "agent_knowledge/assets/templates"
+"assets/rules" = "agent_knowledge/assets/rules"
+"assets/rules-global" = "agent_knowledge/assets/rules-global"
+"assets/commands" = "agent_knowledge/assets/commands"
+"assets/skills" = "agent_knowledge/assets/skills"
+"assets/skills-cursor" = "agent_knowledge/assets/skills-cursor"
+"assets/claude" = "agent_knowledge/assets/claude"
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/",
+    "assets/",
+    "tests/",
+    "pyproject.toml",
+    "LICENSE",
+    "README.md",
+]

@@ -1,0 +1,11 @@
+{
+  "version": 1,
+  "description": "Repo-local hook for agent-knowledge sync.",
+  "hooks": [
+    {
+      "name": "project-knowledge-sync",
+      "event": "post-write",
+      "command": "agent-knowledge update --summary-file <repo-path>/.cursor/knowledge-sync.last.json --project <repo-path>"
+    }
+  ]
+}
