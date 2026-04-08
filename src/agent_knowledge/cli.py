@@ -118,18 +118,23 @@ _STAR_MARKER = Path.home() / ".agent-knowledge-starred"
 
 
 def _maybe_star() -> None:
-    """Prompt to star the repo once, then never again."""
+    """Prompt to star the repo once, then never again. Skips in non-interactive shells."""
     if _STAR_MARKER.exists():
         return
-    click.echo("", err=True)
-    if click.confirm(
-        click.style(f"Like agent-knowledge? Star it on GitHub", fg="yellow"),
-        default=True,
-        err=True,
-    ):
-        import webbrowser
+    if not sys.stderr.isatty():
+        return
+    try:
+        click.echo("", err=True)
+        if click.confirm(
+            click.style("Like agent-knowledge? Star it on GitHub", fg="yellow"),
+            default=True,
+            err=True,
+        ):
+            import webbrowser
 
-        webbrowser.open(_REPO_URL)
+            webbrowser.open(_REPO_URL)
+    except (EOFError, KeyboardInterrupt):
+        click.echo("", err=True)
     _STAR_MARKER.touch()
 
 
