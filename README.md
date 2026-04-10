@@ -119,7 +119,7 @@ from the command line or a hook.
 
 All write commands support `--dry-run`. Use `--json` for machine-readable output.
 
-## Static site export
+## Static site export with graph
 
 Build a polished standalone site from your knowledge vault — no Obsidian required:
 
@@ -127,6 +127,7 @@ Build a polished standalone site from your knowledge vault — no Obsidian requi
 agent-knowledge export-html
 # produces: agent-knowledge/Outputs/site/index.html
 #           agent-knowledge/Outputs/site/data/knowledge.json
+#           agent-knowledge/Outputs/site/data/graph.json
 ```
 
 Or generate and open immediately:
@@ -142,11 +143,20 @@ The generated site includes:
 - **Branch tree** — sidebar navigation across all Memory/ branches with leaf drill-down
 - **Note detail view** — rendered markdown with metadata panel and related notes
 - **Evidence view** — all imported material, clearly marked non-canonical
-- **Structured data** — `knowledge.json` machine-readable model of the entire vault
+- **Graph view** — interactive force-directed graph of all knowledge nodes and relationships
+- **Structured data** — `knowledge.json` and `graph.json` machine-readable models of the vault
+
+**Graph view** is a secondary exploration aid, not the primary navigation. The tree explorer and note detail view are the main interfaces. The graph shows:
+- Branches, leaf notes, decisions, evidence, and outputs as distinct node types
+- Structural edges (solid) and inferred relationships (dashed)
+- Color-coded node types with visual distinction between canonical (Memory) and non-canonical (Evidence/Outputs) content
+- Interactive zoom/pan, click-to-select with info panel, filter by node type and canonical status, and text search
+
+The graph is built from `graph.json`, which is derived from `knowledge.json`. Neither file is canonical truth.
 
 Memory/ notes are always primary. Evidence and Outputs items are clearly marked non-canonical. The site is a generated presentation layer — the vault remains the source of truth.
 
-The site is a single `index.html` with all data embedded as a JS variable, so it opens correctly via `file://` without any server.
+The site is a single `index.html` with all data embedded as JS variables, so it opens correctly via `file://` without any server.
 
 ## Skills
 

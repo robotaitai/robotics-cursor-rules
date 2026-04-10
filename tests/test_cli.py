@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -679,6 +680,193 @@ def test_export_html_external_vault_pointer(tmp_path: Path):
     r = _run("export-html", "--project", str(repo))
     assert r.returncode == 0, f"export-html failed through pointer: {r.stderr}"
     assert (repo / "agent-knowledge" / "Outputs" / "site" / "index.html").is_file()
+
+
+# -- graph tests ----------------------------------------------------------- #
+
+
+def test_export_html_creates_graph_json(tmp_path: Path):
+    """export-html must produce Outputs/site/data/graph.json alongside knowledge.json."""
+    repo = _init_repo(tmp_path, "graph-exists")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("sync", "--project", str(repo))
+    _run("export-html", "--project", str(repo))
+
+    graph_json = repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json"
+    assert graph_json.is_file(), "Outputs/site/data/graph.json must be created by export-html"
+
+    data = json.loads(graph_json.read_text())
+    assert "nodes" in data
+    assert "edges" in data
+    assert "stats" in data
+    assert isinstance(data["nodes"], list)
+    assert isinstance(data["edges"], list)
+
+
+def test_graph_json_has_project_node(tmp_path: Path):
+    """graph.json must contain at least a project root node."""
+    repo = _init_repo(tmp_path, "graph-project-node")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("sync", "--project", str(repo))
+    _run("export-html", "--project", str(repo))
+
+    gj = json.loads((repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json").read_text())
+    project_nodes = [n for n in gj["nodes"] if n["type"] == "project"]
+    assert len(project_nodes) >= 1, "graph.json must have at least one project node"
+    project_node = project_nodes[0]
+    assert project_node["canonical"] is True
+    assert "label" in project_node
+    assert "id" in project_node
+
+
+def test_graph_json_canonical_distinction(tmp_path: Path):
+    """Graph nodes must distinguish canonical (Memory) from non-canonical (Evidence/Outputs)."""
+    repo = _init_repo(tmp_path, "graph-canonical")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    # Seed an evidence file
+    ev_dir = repo / "agent-knowledge" / "Evidence" / "imports"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    (ev_dir / "external-ref.md").write_text(
+        "---\nnote_type: evidence\nsource: https://example.com\n---\n\n# External Ref\n\nSome imported text.\n"
+    )
+
+    _run("export-html", "--project", str(repo))
+
+    gj = json.loads((repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json").read_text())
+
+    # All Memory/branch/note nodes must be canonical
+    mem_types = {"project", "branch", "note", "decision"}
+    for n in gj["nodes"]:
+        if n["type"] in mem_types:
+            assert n["canonical"] is True, f"Memory-type node {n['id']} must be canonical"
+
+    # Evidence nodes must be non-canonical
+    ev_nodes = [n for n in gj["nodes"] if n["type"] == "evidence"]
+    for n in ev_nodes:
+        assert n["canonical"] is False, f"Evidence node {n['id']} must be non-canonical"
+
+
+def test_graph_json_edges_have_required_fields(tmp_path: Path):
+    """Every edge in graph.json must have source, target, type, and inferred fields."""
+    repo = _init_repo(tmp_path, "graph-edges")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("sync", "--project", str(repo))
+    _run("export-html", "--project", str(repo))
+
+    gj = json.loads((repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json").read_text())
+    for edge in gj["edges"]:
+        assert "source" in edge, f"Edge missing 'source': {edge}"
+        assert "target" in edge, f"Edge missing 'target': {edge}"
+        assert "type" in edge, f"Edge missing 'type': {edge}"
+        assert "inferred" in edge, f"Edge missing 'inferred': {edge}"
+        assert isinstance(edge["inferred"], bool)
+
+
+def test_graph_json_edges_reference_valid_nodes(tmp_path: Path):
+    """All edge sources and targets must reference existing node IDs."""
+    repo = _init_repo(tmp_path, "graph-edge-refs")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("sync", "--project", str(repo))
+    _run("export-html", "--project", str(repo))
+
+    gj = json.loads((repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json").read_text())
+    node_ids = {n["id"] for n in gj["nodes"]}
+    for edge in gj["edges"]:
+        assert edge["source"] in node_ids, f"Edge source {edge['source']} not in nodes"
+        assert edge["target"] in node_ids, f"Edge target {edge['target']} not in nodes"
+
+
+def test_graph_view_in_site_html(tmp_path: Path):
+    """Generated index.html must include the graph tab and canvas element."""
+    repo = _init_repo(tmp_path, "graph-html-view")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("sync", "--project", str(repo))
+    _run("export-html", "--project", str(repo))
+
+    html = (repo / "agent-knowledge" / "Outputs" / "site" / "index.html").read_text()
+
+    # Graph tab button in topbar
+    assert 'data-view="graph"' in html, "Graph tab button must be present"
+    # Canvas element for rendering
+    assert 'id="graph-canvas"' in html, "graph-canvas element must be present"
+    # Graph container overlay
+    assert 'id="graph-container"' in html, "graph-container must be present"
+    # GRAPH_DATA embedded constant
+    assert "GRAPH_DATA" in html, "GRAPH_DATA JS constant must be embedded"
+    # Legend
+    assert 'id="gc-legend"' in html, "Graph legend must be present"
+
+
+def test_graph_json_in_html_data(tmp_path: Path):
+    """index.html must embed GRAPH_DATA as a valid parseable JSON constant."""
+    repo = _init_repo(tmp_path, "graph-embedded")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("export-html", "--project", str(repo))
+
+    html = (repo / "agent-knowledge" / "Outputs" / "site" / "index.html").read_text()
+
+    # Find and parse the embedded GRAPH_DATA constant
+    m = re.search(r'const GRAPH_DATA\s*=\s*(\{.*?\});', html, re.DOTALL)
+    assert m, "GRAPH_DATA constant must be parseable in index.html"
+    parsed = json.loads(m.group(1))
+    assert "nodes" in parsed
+    assert "edges" in parsed
+
+
+def test_graph_dry_run_no_graph_json(tmp_path: Path):
+    """export-html --dry-run must not create graph.json."""
+    repo = _init_repo(tmp_path, "graph-dry")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    _run("export-html", "--project", str(repo), "--dry-run")
+
+    graph_json = repo / "agent-knowledge" / "Outputs" / "site" / "data" / "graph.json"
+    assert not graph_json.exists(), "dry-run must not create graph.json"
+
+
+def test_graph_json_mode_includes_graph_counts(tmp_path: Path):
+    """export-html --json output must include graph_node_count and graph_edge_count."""
+    repo = _init_repo(tmp_path, "graph-json-mode")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    r = _run("export-html", "--project", str(repo), "--json")
+    assert r.returncode == 0
+    data = json.loads(r.stdout)
+    assert "graph_node_count" in data, "JSON output must include graph_node_count"
+    assert "graph_edge_count" in data, "JSON output must include graph_edge_count"
+    assert isinstance(data["graph_node_count"], int)
+    assert isinstance(data["graph_edge_count"], int)
+
+
+def test_graph_module_has_build_graph_data():
+    """site module must export build_graph_data function."""
+    from agent_knowledge.runtime.site import build_graph_data
+    assert callable(build_graph_data)
+
+    # Smoke test with minimal site data
+    minimal = {
+        "project": {"name": "test", "slug": "test", "profile": "unknown", "onboarding": "pending"},
+        "generated": "2026-01-01T00:00:00Z",
+        "branches": [],
+        "decisions": [],
+        "evidence": [],
+        "outputs": [],
+        "stats": {"branch_count": 0, "decision_count": 0, "evidence_count": 0, "output_count": 0, "note_count": 0},
+    }
+    gd = build_graph_data(minimal)
+    assert "nodes" in gd
+    assert "edges" in gd
+    assert any(n["type"] == "project" for n in gd["nodes"])
 
 
 # -- hook thinness test ---------------------------------------------------- #

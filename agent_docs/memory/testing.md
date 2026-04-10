@@ -11,7 +11,7 @@ Test strategy for packaging validation and CLI correctness.
 ## Current State
 
 - Framework: `pytest` (dev dependency).
-- 108 tests across 2 files: `tests/test_packaging.py` and `tests/test_cli.py`.
+- 118 tests across 2 files: `tests/test_packaging.py` and `tests/test_cli.py`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`) -- ubuntu-latest + macos-latest, Python 3.10/3.12/3.13.
   - `test` job: runs `pytest` with editable install.
   - `build` job: builds wheel, installs from wheel, runs CLI smoke tests (`--help`, `--version`, subcommand `--help`).
@@ -45,6 +45,7 @@ Test strategy for packaging validation and CLI correctness.
 - `export-canvas`: creates valid Canvas JSON in Outputs/, dry-run safe, includes Memory/ nodes, not in Memory/.
 - Core CLI flow: `init -> sync -> doctor` still works; new commands do not create non-markdown files in Memory/.
 - `refresh-system`: runs without error, produces clean JSON, dry-run safe, idempotent, never touches Memory/, updates STATUS.md/project-yaml version fields, bundled `system-update.md` exists and is discoverable.
+- `export-html` graph: `graph.json` created, project node present, canonical distinction enforced, edges reference valid nodes, graph tab in HTML, GRAPH_DATA embedded and parseable, dry-run safe, JSON mode includes graph counts.
 
 ### Running tests
 - All tests run via the installed package (`python -m agent_knowledge` or editable install).
@@ -60,6 +61,7 @@ Test strategy for packaging validation and CLI correctness.
 - 2026-04-10: Added 22 new tests for skills, clean-import, export-canvas, core CLI stability (total: 91).
 - 2026-04-10: Added 6 new tests for site generator (export-html), replaced old viewer tests (total: 97).
 - 2026-04-10: Added 11 new tests for refresh-system command (total: 108).
+- 2026-04-10: Added 10 new tests for graph view in site export (total: 118).
 
 ## Open Questions
 

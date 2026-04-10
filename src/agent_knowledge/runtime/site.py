@@ -1,13 +1,16 @@
 """Static site generation for agent-knowledge vaults.
 
 Pipeline:
-  1. build_site_data() -> structured dict (site data model)
-  2. Write Outputs/site/data/knowledge.json
-  3. _render_html()    -> complete index.html with data embedded
-  4. Write Outputs/site/index.html
+  1. build_site_data()  -> structured dict (knowledge.json)
+  2. build_graph_data() -> graph nodes/edges (graph.json)
+  3. Write Outputs/site/data/knowledge.json
+  4. Write Outputs/site/data/graph.json
+  5. _render_html()     -> complete index.html with both data sets embedded
+  6. Write Outputs/site/index.html
 
 Generated output is non-canonical. Memory/ remains the source of truth.
 The site is a presentation layer, not the authoritative knowledge store.
+The graph is a secondary discovery view inside the generated site.
 """
 
 from __future__ import annotations
@@ -454,6 +457,146 @@ def build_site_data(
 
 
 # --------------------------------------------------------------------------- #
+# Graph data model                                                             #
+# --------------------------------------------------------------------------- #
+
+
+def build_graph_data(site_data: dict[str, Any]) -> dict[str, Any]:
+    """Build graph.json from the normalized site data model.
+
+    Node types:  project | branch | note | decision | evidence | output
+    Edge types:  contains | related_to | decided_by | derived_from | supported_by
+
+    Inferred edges are tagged with inferred=True and rendered as dashed lines.
+    Canonical vs non-canonical distinction is preserved on every node.
+    """
+    nodes: list[dict[str, Any]] = []
+    edges: list[dict[str, Any]] = []
+
+    p = site_data["project"]
+    project_id = f"project/{p['slug']}"
+
+    # Project root
+    nodes.append({
+        "id": project_id,
+        "label": p["name"],
+        "type": "project",
+        "canonical": True,
+        "summary": f"{p['profile']} project",
+        "path": None,
+    })
+
+    # Branches and their leaves
+    for branch in site_data.get("branches", []):
+        bid = f"branch/{branch['path']}"
+        nodes.append({
+            "id": bid,
+            "label": branch["title"],
+            "type": "branch",
+            "canonical": True,
+            "summary": (branch.get("summary") or "")[:120],
+            "path": branch["path"],
+        })
+        edges.append({
+            "source": project_id,
+            "target": bid,
+            "type": "contains",
+            "inferred": False,
+        })
+
+        for leaf in branch.get("leaves", []):
+            nid = f"note/{leaf['path']}"
+            nodes.append({
+                "id": nid,
+                "label": leaf["title"],
+                "type": "note",
+                "canonical": True,
+                "summary": (leaf.get("summary") or "")[:100],
+                "path": leaf["path"],
+            })
+            edges.append({
+                "source": bid,
+                "target": nid,
+                "type": "contains",
+                "inferred": False,
+            })
+
+    # Decisions
+    for decision in site_data.get("decisions", []):
+        did = f"decision/{decision['path']}"
+        nodes.append({
+            "id": did,
+            "label": decision["title"],
+            "type": "decision",
+            "canonical": True,
+            "summary": (decision.get("summary") or "")[:100],
+            "path": decision["path"],
+        })
+        # Structural edge from project
+        edges.append({
+            "source": project_id,
+            "target": did,
+            "type": "decided_by",
+            "inferred": False,
+        })
+
+    # Evidence — skip README stubs and capture logs
+    for ev in site_data.get("evidence", []):
+        title = ev.get("title", "")
+        path = ev.get("path", "")
+        if title.lower() in ("readme", "") or path.endswith("README.md"):
+            continue
+        eid = f"evidence/{path}"
+        nodes.append({
+            "id": eid,
+            "label": title,
+            "type": "evidence",
+            "canonical": False,
+            "summary": (ev.get("summary") or "")[:100],
+            "path": path,
+        })
+        edges.append({
+            "source": project_id,
+            "target": eid,
+            "type": "supported_by",
+            "inferred": True,
+        })
+
+    # Outputs — skip site/ self-references
+    for out in site_data.get("outputs", []):
+        path = out.get("path", "")
+        if "site/" in path or path.startswith("Outputs/site"):
+            continue
+        oid = f"output/{path}"
+        nodes.append({
+            "id": oid,
+            "label": out.get("title", path),
+            "type": "output",
+            "canonical": False,
+            "summary": (out.get("summary") or "")[:100],
+            "path": path,
+        })
+        edges.append({
+            "source": project_id,
+            "target": oid,
+            "type": "derived_from",
+            "inferred": True,
+        })
+
+    return {
+        "schema": _SITE_SCHEMA_VERSION,
+        "generated": site_data.get("generated", ""),
+        "project_slug": p["slug"],
+        "nodes": nodes,
+        "edges": edges,
+        "stats": {
+            "node_count": len(nodes),
+            "edge_count": len(edges),
+        },
+    }
+
+
+# --------------------------------------------------------------------------- #
 # HTML template                                                                #
 # --------------------------------------------------------------------------- #
 
@@ -505,10 +648,10 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .sidebar-footer{padding:9px 12px;border-top:1px solid var(--border);flex-shrink:0;font-size:10px;color:var(--muted-2);line-height:1.5}
 
 /* ---- MAIN ---- */
-#main{display:flex;flex-direction:column;overflow:hidden}
+#main{display:flex;flex-direction:column;overflow:hidden;position:relative}
 
 /* ---- TOPBAR ---- */
-#topbar{height:46px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0}
+#topbar{height:46px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;z-index:6;position:relative}
 #breadcrumb{flex:1;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:5px;overflow:hidden}
 #breadcrumb a{color:var(--accent);text-decoration:none;flex-shrink:0}
 #breadcrumb a:hover{text-decoration:underline}
@@ -535,7 +678,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .warnings-box{background:var(--warn-bg);border:1px solid var(--warn-fg);border-radius:var(--radius);padding:13px 15px;margin-bottom:22px}
 .warnings-box h3{color:var(--warn-fg);font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:7px}
 .warn-item{color:var(--warn-fg);font-size:13px;margin-bottom:4px;display:flex;gap:7px}
-.warn-item::before{content:"⚠";flex-shrink:0}
+.warn-item::before{content:"!";flex-shrink:0;font-weight:700}
 
 .section{margin-bottom:32px}
 .section-heading{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:13px;display:flex;align-items:center;gap:8px}
@@ -630,6 +773,52 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .badge-profile{background:var(--surface-2);color:var(--muted);border:1px solid var(--border);font-size:9px}
 .badge-onboarding-ok{background:#0d2b0d;color:var(--ok);border:1px solid #1a4d1a;font-size:9px}
 .badge-onboarding-pending{background:var(--warn-bg);color:var(--warn-fg);border:1px solid var(--warn-fg);font-size:9px}
+
+/* ---- GRAPH VIEW ---- */
+#graph-container{position:absolute;top:46px;left:0;right:0;bottom:0;display:none;background:var(--bg);z-index:5;overflow:hidden}
+#graph-container.visible{display:block}
+#graph-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;cursor:grab}
+#graph-canvas.gdrag{cursor:grabbing}
+
+/* graph controls bar */
+#gc-bar{position:absolute;top:10px;left:10px;display:flex;align-items:center;gap:5px;flex-wrap:wrap;background:rgba(22,27,34,.95);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;z-index:10;max-width:calc(100% - 250px);backdrop-filter:blur(6px)}
+#gc-search{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px;outline:none;padding:4px 9px;width:120px;transition:border-color .15s}
+#gc-search:focus{border-color:var(--accent)}
+.gc-sep{color:var(--border-2);padding:0 2px;font-size:10px;user-select:none}
+.gc-lbl{color:var(--muted-2);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;flex-shrink:0}
+.gf-btn{background:var(--surface-2);border:1px solid var(--border);border-radius:11px;color:var(--muted);cursor:pointer;font-size:9px;font-weight:700;letter-spacing:.04em;padding:2px 7px;text-transform:uppercase;transition:all .15s}
+.gf-btn.active{background:var(--mem-bg);border-color:var(--mem-border);color:var(--mem-fg)}
+.gf-btn:hover{color:var(--text)}
+.gcf-btn{background:var(--surface-2);border:1px solid var(--border);border-radius:11px;color:var(--muted);cursor:pointer;font-size:9px;padding:2px 7px;transition:all .15s}
+.gcf-btn.active{background:var(--accent-muted);border-color:var(--accent);color:var(--text)}
+
+/* graph legend */
+#gc-legend{position:absolute;bottom:10px;left:10px;background:rgba(22,27,34,.9);border:1px solid var(--border);border-radius:var(--radius);padding:7px 11px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;z-index:10;backdrop-filter:blur(4px)}
+.gl-item{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted);white-space:nowrap}
+.gl-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;border:1.5px solid transparent}
+.gc-hint{color:var(--muted-2);font-size:9px;font-style:italic}
+
+/* graph info panel */
+#gc-info{position:absolute;top:10px;right:10px;width:210px;background:rgba(22,27,34,.97);border:1px solid var(--border);border-radius:var(--radius);padding:13px 15px;z-index:10;display:none;backdrop-filter:blur(6px)}
+#gc-info.visible{display:block}
+.gi-close{position:absolute;top:8px;right:10px;background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;line-height:1;padding:0}
+.gi-close:hover{color:var(--text)}
+.gi-type{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:3px}
+.gi-title{font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;word-break:break-word;padding-right:14px}
+.gi-summary{font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:7px}
+.gi-cn{font-size:10px;margin-bottom:8px}
+.gi-cn.ok{color:var(--ok)}
+.gi-cn.nc{color:var(--ev-fg)}
+.gi-open{background:var(--accent-muted);border:none;border-radius:var(--radius-sm);color:var(--text);cursor:pointer;display:block;font-size:12px;padding:5px;text-align:center;width:100%;transition:background .15s}
+.gi-open:hover{background:var(--accent);color:#000}
+
+/* graph controls / zoom */
+#gc-zoom{position:absolute;bottom:10px;right:10px;display:flex;flex-direction:column;gap:4px;z-index:10}
+.gcz-btn{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--muted);cursor:pointer;font-size:14px;line-height:1;padding:5px 8px;transition:all .15s;display:flex;align-items:center;justify-content:center}
+.gcz-btn:hover{color:var(--text);border-color:var(--accent)}
+
+/* graph empty state */
+#gc-empty{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;color:var(--muted);font-size:14px;pointer-events:none}
 </style>
 </head>
 <body>
@@ -652,14 +841,53 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       <div id="topbar-tabs">
         <button class="tab-btn active" data-view="overview" onclick="nav('overview')">Overview</button>
         <button class="tab-btn" data-view="evidence" onclick="nav('evidence')">Evidence</button>
+        <button class="tab-btn" data-view="graph" onclick="nav('graph')">Graph</button>
       </div>
     </div>
     <div id="content"></div>
+    <!-- Graph container: persists across view switches, overlays #content -->
+    <div id="graph-container">
+      <canvas id="graph-canvas"></canvas>
+      <div id="gc-bar">
+        <input id="gc-search" type="text" placeholder="Search..." />
+        <span class="gc-sep">|</span>
+        <span class="gc-lbl">Type</span>
+        <button class="gf-btn active" data-type="branch">Branch</button>
+        <button class="gf-btn active" data-type="note">Note</button>
+        <button class="gf-btn active" data-type="decision">Decision</button>
+        <button class="gf-btn active" data-type="evidence">Evidence</button>
+        <button class="gf-btn active" data-type="output">Output</button>
+        <span class="gc-sep">|</span>
+        <button class="gcf-btn active" data-val="all">All</button>
+        <button class="gcf-btn" data-val="canonical">Canonical only</button>
+      </div>
+      <div id="gc-legend">
+        <span class="gl-item"><span class="gl-dot" style="background:#0a2447;border-color:#58a6ff"></span>Project</span>
+        <span class="gl-item"><span class="gl-dot" style="background:#0d2744;border-color:#388bfd"></span>Branch</span>
+        <span class="gl-item"><span class="gl-dot" style="background:#0d1b2e;border-color:#1f6feb"></span>Note</span>
+        <span class="gl-item"><span class="gl-dot" style="background:#0b2d0b;border-color:#3fb950"></span>Decision</span>
+        <span class="gl-item"><span class="gl-dot" style="background:#1b0042;border-color:#8957e5"></span>Evidence</span>
+        <span class="gl-item"><span class="gl-dot" style="background:#2a1500;border-color:#9e6a03"></span>Output</span>
+        <span class="gl-item"><span class="gl-dot" style="background:transparent;border-color:#6e40c9"></span>Non-canonical</span>
+        <span class="gc-hint">Scroll=zoom · Drag=pan · Click=select</span>
+      </div>
+      <div id="gc-info">
+        <button class="gi-close" onclick="closeInfoPanel()">x</button>
+        <div id="gc-info-body"></div>
+      </div>
+      <div id="gc-zoom">
+        <button class="gcz-btn" onclick="graphZoomIn()" title="Zoom in">+</button>
+        <button class="gcz-btn" onclick="graphZoomOut()" title="Zoom out">-</button>
+        <button class="gcz-btn" onclick="resetGraphView()" title="Reset view" style="font-size:10px">reset</button>
+      </div>
+      <div id="gc-empty" style="display:none">No nodes to display.<br>Adjust filters or run agent-knowledge sync first.</div>
+    </div>
   </div>
 </div>
 
 <script>
 const DATA = __DATA_JSON__;
+const GRAPH_DATA = __GRAPH_JSON__;
 
 let _view = 'overview';
 let _notePath = null;
@@ -678,6 +906,13 @@ function nav(view, arg){
   if(view==='overview') location.hash='overview';
   else if(view==='note') location.hash='note/'+encP(arg);
   else if(view==='evidence') location.hash='evidence';
+  else if(view==='graph') location.hash='graph';
+}
+
+function _hideGraph(){
+  const gc = document.getElementById('graph-container');
+  if(gc) gc.classList.remove('visible');
+  if(_simFrame){ cancelAnimationFrame(_simFrame); _simFrame=null; }
 }
 
 function handleHash(){
@@ -685,6 +920,7 @@ function handleHash(){
   if(!h||h==='overview') showOverview();
   else if(h.startsWith('note/')) showNote(decodeURIComponent(h.slice(5)));
   else if(h==='evidence') showEvidence();
+  else if(h==='graph') showGraph();
   else showOverview();
 }
 
@@ -705,10 +941,10 @@ function buildSidebar(){
   for(const b of DATA.branches){
     if(b.path==='Memory/MEMORY.md') continue;
     h += `<div class="tree-item branch" data-path="${esc(b.path)}" onclick="nav('note','${esc(b.path)}')" title="${esc(b.path)}">`;
-    h += `<span class="tree-item-icon">◈</span><span class="tree-item-label">${esc(b.title)}</span></div>`;
+    h += `<span class="tree-item-icon">o</span><span class="tree-item-label">${esc(b.title)}</span></div>`;
     for(const lf of (b.leaves||[])){
       h += `<div class="tree-item leaf" data-path="${esc(lf.path)}" onclick="nav('note','${esc(lf.path)}')" title="${esc(lf.path)}">`;
-      h += `<span class="tree-item-icon">·</span><span class="tree-item-label">${esc(lf.title)}</span></div>`;
+      h += `<span class="tree-item-icon">-</span><span class="tree-item-label">${esc(lf.title)}</span></div>`;
     }
   }
 
@@ -718,7 +954,7 @@ function buildSidebar(){
     h += '<div class="tree-group-header" style="font-size:9px">Decisions</div>';
     for(const d of DATA.decisions){
       h += `<div class="tree-item leaf" data-path="${esc(d.path)}" onclick="nav('note','${esc(d.path)}')" title="${esc(d.path)}">`;
-      h += `<span class="tree-item-icon">⊞</span><span class="tree-item-label">${esc(d.title)}</span></div>`;
+      h += `<span class="tree-item-icon">#</span><span class="tree-item-label">${esc(d.title)}</span></div>`;
     }
   }
   h += '</div>';
@@ -730,7 +966,7 @@ function buildSidebar(){
     h += `<div class="tree-group-header">${badge('Evidence')}<span class="count">${DATA.evidence.length}</span></div>`;
     for(const e of DATA.evidence){
       h += `<div class="tree-item leaf" data-path="${esc(e.path)}" onclick="nav('note','${esc(e.path)}')" title="${esc(e.path)}">`;
-      h += `<span class="tree-item-icon">·</span><span class="tree-item-label">${esc(e.title)}</span></div>`;
+      h += `<span class="tree-item-icon">-</span><span class="tree-item-label">${esc(e.title)}</span></div>`;
     }
     h += '</div>';
   }
@@ -754,6 +990,8 @@ function setTopbar(view, note){
     bc.innerHTML='<span class="bc-current">Overview</span>';
   } else if(view==='evidence'){
     bc.innerHTML='<span class="bc-current">Evidence</span>';
+  } else if(view==='graph'){
+    bc.innerHTML='<span class="bc-current">Graph</span>';
   } else if(view==='note'&&note){
     const folderBadge = badge(note.folder);
     bc.innerHTML = `<a href="#overview" onclick="event.preventDefault();nav('overview')">Overview</a>`
@@ -764,11 +1002,11 @@ function setTopbar(view, note){
 
 // ---- Overview ----
 function showOverview(){
+  _hideGraph();
   _view='overview'; _notePath=null;
   const content = document.getElementById('content');
   let h = '<div class="view-wrap">';
 
-  // Header
   const p = DATA.project;
   const onb = p.onboarding||'unknown';
   const onbOk = onb==='complete';
@@ -785,14 +1023,12 @@ function showOverview(){
   }
   h += `</div></div>`;
 
-  // Warnings
   if(DATA.warnings&&DATA.warnings.length>0){
     h += `<div class="warnings-box"><h3>Warnings</h3>`;
     for(const w of DATA.warnings) h += `<div class="warn-item">${esc(w)}</div>`;
     h += `</div>`;
   }
 
-  // Branch cards
   const mainBranches = DATA.branches.filter(b=>b.path!=='Memory/MEMORY.md');
   if(mainBranches.length>0){
     h += `<div class="section"><div class="section-heading">Knowledge Branches</div>`;
@@ -803,14 +1039,13 @@ function showOverview(){
       const changesN = (b.recent_changes||[]).length;
       h += `<div class="branch-card" onclick="nav('note','${esc(b.path)}')">`;
       h += `<div class="branch-card-top"><span class="branch-card-title">${esc(b.title)}</span>${badge('Memory')}</div>`;
-      h += `<div class="branch-card-purpose">${esc(purpose.substring(0,130))}${purpose.length>130?'…':''}</div>`;
+      h += `<div class="branch-card-purpose">${esc(purpose.substring(0,130))}${purpose.length>130?'...':''}</div>`;
       h += `<div class="branch-card-foot"><span>${stateN} facts</span><span>${changesN} changes</span>${b.updated?`<span>${esc(b.updated)}</span>`:''}</div>`;
       h += `</div>`;
     }
     h += `</div></div>`;
   }
 
-  // Recent Changes
   if(DATA.recent_changes_global&&DATA.recent_changes_global.length>0){
     h += `<div class="section"><div class="section-heading">Recent Changes</div><div class="changes-list">`;
     for(const c of DATA.recent_changes_global){
@@ -823,21 +1058,19 @@ function showOverview(){
     h += `</div></div>`;
   }
 
-  // Decisions
   if(DATA.decisions&&DATA.decisions.length>0){
     const shown = DATA.decisions.slice(0,8);
     h += `<div class="section"><div class="section-heading">Key Decisions</div><div class="decision-list">`;
     for(const d of shown){
       h += `<div class="decision-item" onclick="nav('note','${esc(d.path)}')">`;
       h += `<div class="decision-item-title">${esc(d.title)}</div>`;
-      if(d.what) h += `<div class="decision-item-what">${esc(d.what.substring(0,160))}${d.what.length>160?'…':''}</div>`;
+      if(d.what) h += `<div class="decision-item-what">${esc(d.what.substring(0,160))}${d.what.length>160?'...':''}</div>`;
       if(d.date) h += `<div class="decision-item-date">${esc(d.date)}</div>`;
       h += `</div>`;
     }
     h += `</div></div>`;
   }
 
-  // Open Questions
   const allQ = DATA.branches.flatMap(b=>(b.open_questions||[]).map(q=>({q,branch:b.title})));
   if(allQ.length>0){
     h += `<div class="section"><div class="section-heading">Open Questions</div><ul class="question-list">`;
@@ -865,6 +1098,7 @@ function findNote(path){
 }
 
 function showNote(path){
+  _hideGraph();
   _view='note'; _notePath=path;
   const note = findNote(path);
   const content = document.getElementById('content');
@@ -874,14 +1108,12 @@ function showNote(path){
   }
   let h = `<div class="note-wrap">`;
 
-  // Breadcrumb
   h += `<div class="note-breadcrumb">`;
   h += `<a href="#overview" onclick="event.preventDefault();nav('overview')">Overview</a>`;
   h += `<span class="bc-sep">›</span>${badge(note.folder)}`;
   h += `<span class="bc-sep">›</span><span>${esc(note.title)}</span>`;
   h += `</div>`;
 
-  // Header
   h += `<div class="note-header">`;
   h += `<div class="note-badges">${badge(note.folder)}`;
   if(note.note_type&&note.note_type!=='unknown') h += `<span class="note-type-label">${esc(note.note_type)}</span>`;
@@ -891,18 +1123,15 @@ function showNote(path){
   if(note.area) h += `<span>area: ${esc(note.area)}</span>`;
   if(note.updated) h += `<span>updated: ${esc(note.updated)}</span>`;
   const cnCls = note.canonical?'note-canonical':'note-non-canonical';
-  h += `<span class="${cnCls}">${note.canonical?'✓ canonical':'⊘ non-canonical'}</span>`;
+  h += `<span class="${cnCls}">${note.canonical?'canonical':'non-canonical'}</span>`;
   h += `</div></div>`;
 
-  // Non-canonical warning
   if(!note.canonical){
     h += `<div class="nc-warning">This note is in <strong>${esc(note.folder)}</strong> and is not canonical memory. Do not treat it as source of truth.</div>`;
   }
 
-  // Body
   h += `<div class="note-body">${note.html||''}</div>`;
 
-  // Leaves (sub-notes)
   if(note.leaves&&note.leaves.length>0){
     h += `<div class="related-section"><h4>Branch Notes</h4><div class="related-list">`;
     for(const lf of note.leaves){
@@ -923,6 +1152,7 @@ function showNote(path){
 
 // ---- Evidence view ----
 function showEvidence(){
+  _hideGraph();
   _view='evidence'; _notePath=null;
   const content = document.getElementById('content');
   let h = `<div class="view-wrap">`;
@@ -949,7 +1179,462 @@ function showEvidence(){
   setSidebarActive(null);
 }
 
-// ---- Boot ----
+// =========================================================================
+// GRAPH VIEW — self-contained force-directed graph (no external deps)
+// =========================================================================
+
+// Node visual constants
+const GC = {
+  project:  { fill:'#0a2447', stroke:'#58a6ff', label:'#79c0ff' },
+  branch:   { fill:'#0d2744', stroke:'#388bfd', label:'#79c0ff' },
+  note:     { fill:'#0d1b2e', stroke:'#1f6feb', label:'#8b949e' },
+  decision: { fill:'#0b2d0b', stroke:'#3fb950', label:'#56d364' },
+  evidence: { fill:'#1b0042', stroke:'#8957e5', label:'#d2a8ff' },
+  output:   { fill:'#2a1500', stroke:'#9e6a03', label:'#e3b341' },
+};
+const GR = { project:22, branch:16, note:10, decision:13, evidence:9, output:9 };
+
+// Simulation constants
+const SIM_REPULSION = 7000;
+const SIM_SPRING = 0.05;
+const SIM_REST = 140;
+const SIM_GRAVITY = 0.02;
+const SIM_DAMPING = 0.82;
+
+// Graph state
+let _gNodes = [], _gEdges = [];
+let _gZoom = 0.85, _gPanX = 0, _gPanY = 0;
+let _gHovered = null, _gSelected = null;
+let _gSearchQ = '';
+let _gFilters = { types: new Set(['project','branch','note','decision','evidence','output']), canonical:'all' };
+let _gCanvas = null, _gCtx = null;
+let _gDragging = false, _gDragStart = null, _gNodeDrag = null;
+let _simAlpha = 1, _simTick = 0, _simRunning = false, _simFrame = null;
+let _graphInited = false;
+
+function showGraph(){
+  _view='graph'; _notePath=null;
+  const gc = document.getElementById('graph-container');
+  if(!gc) return;
+  gc.classList.add('visible');
+  if(!_graphInited){
+    _graphInited = true;
+    _initGraph();
+  } else {
+    _resizeGraph();
+    if(!_simRunning) _renderGraph();
+  }
+  setTopbar('graph');
+  setSidebarActive(null);
+}
+
+function _initGraph(){
+  _gCanvas = document.getElementById('graph-canvas');
+  if(!_gCanvas) return;
+  _gCtx = _gCanvas.getContext('2d');
+
+  const nodeMap = {};
+  _gNodes = (GRAPH_DATA.nodes||[]).map(n=>{
+    const nd = Object.assign({},n,{
+      x:0, y:0, vx:0, vy:0, fx:0, fy:0,
+      radius: GR[n.type]||10, visible:true
+    });
+    nodeMap[n.id] = nd;
+    return nd;
+  });
+  _gEdges = (GRAPH_DATA.edges||[]).map(e=>({
+    ...e, src:nodeMap[e.source], tgt:nodeMap[e.target]
+  })).filter(e=>e.src&&e.tgt);
+
+  _computeLayout();
+
+  const cnt = _gCanvas.parentElement;
+  _gPanX = cnt.clientWidth/2;
+  _gPanY = cnt.clientHeight/2;
+
+  _resizeGraph();
+  window.addEventListener('resize', ()=>{ if(_view==='graph') _resizeGraph(); });
+
+  _gCanvas.addEventListener('mousedown', _onGDown);
+  _gCanvas.addEventListener('mousemove', _onGMove);
+  _gCanvas.addEventListener('mouseup', _onGUp);
+  _gCanvas.addEventListener('mouseleave', ()=>{ _gHovered=null; _renderGraph(); });
+  _gCanvas.addEventListener('click', _onGClick);
+  _gCanvas.addEventListener('wheel', _onGWheel, {passive:false});
+
+  document.querySelectorAll('.gf-btn').forEach(b=>{
+    b.addEventListener('click',()=>_toggleType(b.dataset.type));
+  });
+  document.querySelectorAll('.gcf-btn').forEach(b=>{
+    b.addEventListener('click',()=>_setCanonicalFilter(b.dataset.val));
+  });
+  const si = document.getElementById('gc-search');
+  if(si) si.addEventListener('input',e=>{
+    _gSearchQ = e.target.value.toLowerCase().trim();
+    _applyFilters();
+  });
+
+  _startSim();
+}
+
+function _computeLayout(){
+  const proj = _gNodes.find(n=>n.type==='project');
+  const branches = _gNodes.filter(n=>n.type==='branch');
+  const decisions = _gNodes.filter(n=>n.type==='decision');
+  const evidence = _gNodes.filter(n=>n.type==='evidence');
+  const outputs = _gNodes.filter(n=>n.type==='output');
+
+  if(proj){ proj.x=0; proj.y=0; }
+
+  const BR = Math.max(180, branches.length*40);
+  branches.forEach((b,i)=>{
+    const a = (i/Math.max(1,branches.length))*2*Math.PI - Math.PI/2;
+    b.x = Math.cos(a)*BR; b.y = Math.sin(a)*BR;
+    const leaves = _gNodes.filter(n=>n.type==='note' &&
+      _gEdges.some(e=>e.src===b&&e.tgt===n));
+    leaves.forEach((lf,li)=>{
+      const la = a + (li - leaves.length/2 + 0.5)*0.5;
+      lf.x = b.x + Math.cos(la)*90;
+      lf.y = b.y + Math.sin(la)*90;
+    });
+  });
+
+  decisions.forEach((d,i)=>{
+    const a = (i/Math.max(1,decisions.length))*Math.PI;
+    d.x = Math.cos(a)*70; d.y = -BR - 120 + Math.sin(a)*50;
+  });
+
+  const evX = BR + 120;
+  evidence.forEach((e,i)=>{
+    e.x = evX + (i%2)*40;
+    e.y = (i - evidence.length/2)*45;
+  });
+
+  const outX = -BR - 120;
+  outputs.forEach((o,i)=>{
+    o.x = outX - (i%2)*40;
+    o.y = (i - outputs.length/2)*45;
+  });
+}
+
+function _startSim(){
+  _simAlpha = 1; _simTick = 0; _simRunning = true;
+  if(_simFrame) cancelAnimationFrame(_simFrame);
+  _simStep();
+}
+
+function _simStep(){
+  if(!_simRunning) return;
+  const vis = _gNodes.filter(n=>n.visible);
+  if(vis.length===0){ _simRunning=false; return; }
+
+  for(const n of vis){ n.fx=0; n.fy=0; }
+
+  // Gravity
+  for(const n of vis){
+    n.fx -= SIM_GRAVITY*n.x*_simAlpha;
+    n.fy -= SIM_GRAVITY*n.y*_simAlpha;
+  }
+
+  // Repulsion O(n²) — acceptable for vault sizes (<300 nodes typical)
+  for(let i=0;i<vis.length;i++){
+    const a=vis[i];
+    for(let j=i+1;j<vis.length;j++){
+      const b=vis[j];
+      const dx=b.x-a.x, dy=b.y-a.y;
+      const d2=dx*dx+dy*dy+0.01;
+      const dist=Math.sqrt(d2);
+      const f=SIM_REPULSION*_simAlpha/d2;
+      const fx=f*dx/dist, fy=f*dy/dist;
+      a.fx-=fx; a.fy-=fy; b.fx+=fx; b.fy+=fy;
+    }
+  }
+
+  // Spring forces on visible edges
+  for(const e of _gEdges){
+    if(!e.src||!e.tgt||!e.src.visible||!e.tgt.visible) continue;
+    const dx=e.tgt.x-e.src.x, dy=e.tgt.y-e.src.y;
+    const dist=Math.sqrt(dx*dx+dy*dy)||1;
+    const disp=(dist-SIM_REST)*SIM_SPRING*_simAlpha;
+    const fx=disp*dx/dist, fy=disp*dy/dist;
+    e.src.fx+=fx; e.src.fy+=fy; e.tgt.fx-=fx; e.tgt.fy-=fy;
+  }
+
+  // Integrate
+  let ke=0;
+  for(const n of vis){
+    n.vx=(n.vx+n.fx)*SIM_DAMPING;
+    n.vy=(n.vy+n.fy)*SIM_DAMPING;
+    n.x+=n.vx; n.y+=n.vy;
+    ke+=n.vx*n.vx+n.vy*n.vy;
+  }
+
+  _simAlpha*=0.992;
+  _simTick++;
+  _renderGraph();
+
+  if(_simAlpha>0.004&&_simTick<700){
+    _simFrame = requestAnimationFrame(_simStep);
+  } else {
+    _simRunning=false;
+    _renderGraph();
+  }
+}
+
+function _resizeGraph(){
+  if(!_gCanvas) return;
+  const cnt = _gCanvas.parentElement;
+  const dpr = window.devicePixelRatio||1;
+  const W = cnt.clientWidth, H = cnt.clientHeight;
+  _gCanvas.width = W*dpr; _gCanvas.height = H*dpr;
+  _gCanvas.style.width = W+'px'; _gCanvas.style.height = H+'px';
+  if(!_graphInited || _simTick===0){ _gPanX=W/2; _gPanY=H/2; }
+  _renderGraph();
+}
+
+function _W(){ return _gCanvas?_gCanvas.width/(window.devicePixelRatio||1):0; }
+function _H(){ return _gCanvas?_gCanvas.height/(window.devicePixelRatio||1):0; }
+
+function _renderGraph(){
+  if(!_gCtx||!_gCanvas) return;
+  const dpr = window.devicePixelRatio||1;
+  const W = _W(), H = _H();
+  _gCtx.clearRect(0,0,W*dpr,H*dpr);
+
+  // Empty state check
+  const vis = _gNodes.filter(n=>n.visible);
+  document.getElementById('gc-empty').style.display = vis.length===0?'block':'none';
+  if(vis.length===0) return;
+
+  _gCtx.save();
+  _gCtx.scale(dpr,dpr);
+  _gCtx.translate(_gPanX,_gPanY);
+  _gCtx.scale(_gZoom,_gZoom);
+
+  // Draw edges
+  for(const e of _gEdges){
+    if(!e.src||!e.tgt||!e.src.visible||!e.tgt.visible) continue;
+    const connected = _gSelected&&(e.src===_gSelected||e.tgt===_gSelected);
+    const dim = _gSelected&&!connected;
+    const baseAlpha = e.inferred?0.2:0.38;
+    const alpha = dim?0.05:connected?0.85:baseAlpha;
+
+    _gCtx.beginPath();
+    _gCtx.moveTo(e.src.x,e.src.y);
+    _gCtx.lineTo(e.tgt.x,e.tgt.y);
+    _gCtx.strokeStyle = `rgba(139,148,158,${alpha})`;
+    _gCtx.lineWidth = (e.inferred?1:1.5)/_gZoom;
+    if(e.inferred) _gCtx.setLineDash([5/_gZoom,4/_gZoom]);
+    else _gCtx.setLineDash([]);
+    _gCtx.stroke();
+  }
+  _gCtx.setLineDash([]);
+
+  // Draw nodes (larger first so small ones render on top)
+  const sorted = [...vis].sort((a,b)=>b.radius-a.radius);
+  const showLabel = _gZoom>0.35;
+
+  for(const n of sorted){
+    const isH = n===_gHovered;
+    const isS = n===_gSelected;
+    const dim = _gSelected&&!isS&&!isH;
+    const col = GC[n.type]||GC.note;
+    const r = n.radius;
+    const isMatch = _gSearchQ&&n.label.toLowerCase().includes(_gSearchQ);
+
+    // Glow for selected
+    if(isS){
+      _gCtx.shadowColor = col.stroke;
+      _gCtx.shadowBlur = 18/_gZoom;
+    }
+
+    _gCtx.beginPath();
+    _gCtx.arc(n.x,n.y,isH||isS?r+2:r,0,Math.PI*2);
+    if(isS) _gCtx.fillStyle = col.stroke;
+    else if(isMatch) _gCtx.fillStyle = col.stroke+'55';
+    else if(dim) _gCtx.fillStyle = col.fill+'66';
+    else _gCtx.fillStyle = col.fill;
+    _gCtx.fill();
+
+    _gCtx.strokeStyle = dim?`rgba(139,148,158,0.2)`:isH||isS?col.stroke:col.stroke+'cc';
+    _gCtx.lineWidth = (isS?3:isH?2.5:1.5)/_gZoom;
+    _gCtx.stroke();
+    _gCtx.shadowBlur=0;
+
+    // Non-canonical indicator: small purple dot
+    if(!n.canonical){
+      _gCtx.beginPath();
+      _gCtx.arc(n.x+r*0.62,n.y-r*0.62,Math.max(2,3.5/_gZoom),0,Math.PI*2);
+      _gCtx.fillStyle = dim?'rgba(110,64,201,0.3)':'#6e40c9';
+      _gCtx.fill();
+    }
+
+    // Labels
+    if(showLabel&&!dim||(isH||isS)){
+      const fs = Math.min(11,Math.max(7,11/_gZoom));
+      const maxCh = Math.max(5,Math.floor(15/_gZoom));
+      const lbl = n.label.length>maxCh?n.label.slice(0,maxCh-1)+'..':n.label;
+      _gCtx.font = `${n.type==='project'||n.type==='branch'?'600 ':''}${fs}px -apple-system,system-ui,sans-serif`;
+      _gCtx.fillStyle = dim?`rgba(139,148,158,0.25)`:col.label;
+      _gCtx.textAlign='center';
+      _gCtx.textBaseline='top';
+      _gCtx.fillText(lbl,n.x,n.y+r+Math.max(3,4/_gZoom));
+    }
+  }
+
+  _gCtx.restore();
+}
+
+// ---- Mouse/touch handlers ----
+function _screenToGraph(sx,sy){ return {x:(sx-_gPanX)/_gZoom, y:(sy-_gPanY)/_gZoom}; }
+
+function _nodeAt(sx,sy){
+  const gp = _screenToGraph(sx,sy);
+  let best=null, bestD=Infinity;
+  for(const n of _gNodes){
+    if(!n.visible) continue;
+    const dx=n.x-gp.x, dy=n.y-gp.y;
+    const d=Math.sqrt(dx*dx+dy*dy);
+    if(d<n.radius+6/_gZoom&&d<bestD){ best=n; bestD=d; }
+  }
+  return best;
+}
+
+function _rectOf(el){ return el.getBoundingClientRect(); }
+
+function _onGDown(e){
+  const r=_rectOf(_gCanvas);
+  const sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const hit=_nodeAt(sx,sy);
+  if(hit){ _gNodeDrag=hit; _gDragging=false; }
+  else{ _gDragStart={x:sx,y:sy,px:_gPanX,py:_gPanY}; _gDragging=true; _gCanvas.classList.add('gdrag'); }
+}
+
+function _onGMove(e){
+  const r=_rectOf(_gCanvas);
+  const sx=e.clientX-r.left, sy=e.clientY-r.top;
+  if(_gNodeDrag){
+    const gp=_screenToGraph(sx,sy);
+    _gNodeDrag.x=gp.x; _gNodeDrag.y=gp.y; _gNodeDrag.vx=0; _gNodeDrag.vy=0;
+    _renderGraph(); return;
+  }
+  if(_gDragging&&_gDragStart){
+    _gPanX=_gDragStart.px+(sx-_gDragStart.x);
+    _gPanY=_gDragStart.py+(sy-_gDragStart.y);
+    _renderGraph(); return;
+  }
+  const hit=_nodeAt(sx,sy);
+  if(hit!==_gHovered){
+    _gHovered=hit;
+    _gCanvas.style.cursor=hit?'pointer':'grab';
+    _renderGraph();
+  }
+}
+
+function _onGUp(e){
+  _gNodeDrag=null; _gDragging=false; _gDragStart=null;
+  _gCanvas.classList.remove('gdrag');
+}
+
+function _onGClick(e){
+  const r=_rectOf(_gCanvas);
+  const sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const hit=_nodeAt(sx,sy);
+  _gSelected=(hit&&hit===_gSelected)?null:hit;
+  _updateInfoPanel();
+  _renderGraph();
+}
+
+function _onGWheel(e){
+  e.preventDefault();
+  const r=_rectOf(_gCanvas);
+  const sx=e.clientX-r.left, sy=e.clientY-r.top;
+  const delta=e.deltaY<0?1.12:0.89;
+  const nz=Math.max(0.08,Math.min(6,_gZoom*delta));
+  _gPanX=sx-(sx-_gPanX)*(nz/_gZoom);
+  _gPanY=sy-(sy-_gPanY)*(nz/_gZoom);
+  _gZoom=nz;
+  _renderGraph();
+}
+
+// ---- Graph controls ----
+function graphZoomIn(){
+  _gZoom=Math.min(6,_gZoom*1.25);
+  _gPanX=_W()/2-((_W()/2-_gPanX)/_gZoom)*_gZoom;
+  _gPanY=_H()/2-((_H()/2-_gPanY)/_gZoom)*_gZoom;
+  _renderGraph();
+}
+function graphZoomOut(){
+  const prev=_gZoom;
+  _gZoom=Math.max(0.08,_gZoom/1.25);
+  _gPanX=_W()/2-((_W()/2-_gPanX)/prev)*_gZoom;
+  _gPanY=_H()/2-((_H()/2-_gPanY)/prev)*_gZoom;
+  _renderGraph();
+}
+function resetGraphView(){
+  const cnt=_gCanvas&&_gCanvas.parentElement;
+  if(cnt){ _gPanX=cnt.clientWidth/2; _gPanY=cnt.clientHeight/2; }
+  _gZoom=0.85;
+  _computeLayout();
+  _startSim();
+}
+
+function _applyFilters(){
+  for(const n of _gNodes){
+    n.visible = _gFilters.types.has(n.type)||n.type==='project';
+    if(n.visible&&_gFilters.canonical==='canonical') n.visible=n.canonical;
+    if(n.visible&&_gSearchQ) n.visible=n.label.toLowerCase().includes(_gSearchQ)||n.type==='project';
+  }
+  if(_gSelected&&!_gSelected.visible){ _gSelected=null; _updateInfoPanel(); }
+  _startSim();
+}
+
+function _toggleType(type){
+  const active = _gFilters.types.has(type);
+  // Prevent deselecting all non-project types
+  const others = ['branch','note','decision','evidence','output'].filter(t=>t!==type&&_gFilters.types.has(t));
+  if(active&&others.length===0) return;
+  if(active) _gFilters.types.delete(type); else _gFilters.types.add(type);
+  document.querySelectorAll('.gf-btn').forEach(b=>{
+    b.classList.toggle('active',_gFilters.types.has(b.dataset.type));
+  });
+  _applyFilters();
+}
+
+function _setCanonicalFilter(val){
+  _gFilters.canonical=val;
+  document.querySelectorAll('.gcf-btn').forEach(b=>{
+    b.classList.toggle('active',b.dataset.val===val);
+  });
+  _applyFilters();
+}
+
+function _updateInfoPanel(){
+  const panel=document.getElementById('gc-info');
+  const body=document.getElementById('gc-info-body');
+  if(!_gSelected||!panel){ panel&&panel.classList.remove('visible'); return; }
+  const n=_gSelected;
+  const col=GC[n.type]||GC.note;
+  const openBtn = n.path
+    ? `<button class="gi-open" onclick="nav('note','${esc(n.path)}')">Open note</button>`:'';
+  body.innerHTML=`
+    <div class="gi-type" style="color:${col.label}">${n.type}</div>
+    <div class="gi-title">${esc(n.label)}</div>
+    ${n.summary?`<div class="gi-summary">${esc(n.summary.substring(0,130))}${n.summary.length>130?'...':''}</div>`:''}
+    <div class="gi-cn ${n.canonical?'ok':'nc'}">${n.canonical?'canonical (Memory)':'non-canonical'}</div>
+    ${openBtn}`;
+  panel.classList.add('visible');
+}
+
+function closeInfoPanel(){
+  _gSelected=null;
+  document.getElementById('gc-info').classList.remove('visible');
+  _renderGraph();
+}
+
+// =========================================================================
+// Boot
+// =========================================================================
 buildSidebar();
 handleHash();
 window.addEventListener('hashchange', handleHash);
@@ -972,14 +1657,15 @@ def generate_site(
     include_evidence: bool = True,
     include_sessions: bool = False,
 ) -> dict[str, Any]:
-    """Generate the static site from the vault.
+    """Generate the static site (with graph) from the vault.
 
     Returns a summary dict:
-      {"action": "created"|"updated"|"dry-run", "site_dir": str, "note_count": int, ...}
+      {"action": "created"|"updated"|"dry-run", "site_dir": str, ...}
 
     Writes:
-      <output_dir>/index.html          -- main SPA
-      <output_dir>/data/knowledge.json -- structured data model
+      <output_dir>/index.html          -- main SPA with embedded graph view
+      <output_dir>/data/knowledge.json -- structured knowledge data model
+      <output_dir>/data/graph.json     -- graph nodes and edges
     """
     if output_dir is None:
         output_dir = vault_dir / "Outputs" / "site"
@@ -989,6 +1675,7 @@ def generate_site(
         include_evidence=include_evidence,
         include_sessions=include_sessions,
     )
+    graph_data = build_graph_data(site_data)
 
     if dry_run:
         return {
@@ -998,6 +1685,8 @@ def generate_site(
             "branch_count": site_data["stats"]["branch_count"],
             "evidence_count": site_data["stats"]["evidence_count"],
             "decision_count": site_data["stats"]["decision_count"],
+            "graph_node_count": graph_data["stats"]["node_count"],
+            "graph_edge_count": graph_data["stats"]["edge_count"],
             "dry_run": True,
         }
 
@@ -1009,8 +1698,12 @@ def generate_site(
     json_existed = json_path.exists()
     json_path.write_text(json.dumps(site_data, indent=2, ensure_ascii=False), encoding="utf-8")
 
+    # Write graph.json
+    graph_path = output_dir / "data" / "graph.json"
+    graph_path.write_text(json.dumps(graph_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
     # Build and write index.html
-    html_content = _render_html(site_data)
+    html_content = _render_html(site_data, graph_data)
     html_path = output_dir / "index.html"
     html_existed = html_path.exists()
     html_path.write_text(html_content, encoding="utf-8")
@@ -1022,25 +1715,32 @@ def generate_site(
         "site_dir": str(output_dir),
         "index_html": str(html_path),
         "knowledge_json": str(json_path),
+        "graph_json": str(graph_path),
         "note_count": site_data["stats"]["note_count"],
         "branch_count": site_data["stats"]["branch_count"],
         "evidence_count": site_data["stats"]["evidence_count"],
         "decision_count": site_data["stats"]["decision_count"],
+        "graph_node_count": graph_data["stats"]["node_count"],
+        "graph_edge_count": graph_data["stats"]["edge_count"],
         "dry_run": False,
     }
 
 
-def _render_html(data: dict[str, Any]) -> str:
-    """Render the complete index.html with data embedded."""
+def _render_html(data: dict[str, Any], graph_data: dict[str, Any] | None = None) -> str:
+    """Render the complete index.html with data and graph data embedded."""
+    if graph_data is None:
+        graph_data = {"nodes": [], "edges": [], "stats": {"node_count": 0, "edge_count": 0}}
+
     project_name = html_mod.escape(data["project"].get("name", "Knowledge Vault"))
     generated = data.get("generated", "")
 
-    # Embed data as a JS constant (no fetch needed — works with file:// protocol)
     data_json = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    graph_json = json.dumps(graph_data, ensure_ascii=False, separators=(",", ":"))
 
     return (
         _HTML_TEMPLATE
         .replace("__PROJECT_NAME__", project_name)
         .replace("__GENERATED__", generated)
         .replace("__DATA_JSON__", data_json)
+        .replace("__GRAPH_JSON__", graph_json)
     )
