@@ -59,6 +59,23 @@ The project carries everything it needs. Both Claude Code and Cursor get full
 integration installed automatically -- hooks, runtime contracts, and slash commands.
 No global config required.
 
+## Obsidian-ready
+
+The knowledge vault at `~/agent-os/projects/<slug>/` is a valid Obsidian vault.
+Open it directly for backlinks, graph view, and note navigation.
+
+![Obsidian graph view of a project knowledge vault](docs/obsidian-graph.png)
+
+For a spatial canvas of the knowledge graph:
+
+```bash
+agent-knowledge export-canvas
+# produces: agent-knowledge/Outputs/knowledge-export.canvas
+```
+
+The vault is designed to work well in Obsidian -- good markdown, YAML frontmatter,
+branch-note convention, internal links. But everything works without it too.
+
 ### What gets installed
 
 **Claude Code** (`.claude/`):
@@ -137,22 +154,7 @@ missing, `doctor` tells you exactly what to run.
 
 All write commands support `--dry-run` and `--json`. Run `agent-knowledge --help` for the full list.
 
-## Obsidian-ready
 
-The knowledge vault at `~/agent-os/projects/<slug>/` is a valid Obsidian vault.
-Open it directly for backlinks, graph view, and note navigation.
-
-![Obsidian graph view of a project knowledge vault](docs/obsidian-graph.png)
-
-For a spatial canvas of the knowledge graph:
-
-```bash
-agent-knowledge export-canvas
-# produces: agent-knowledge/Outputs/knowledge-export.canvas
-```
-
-The vault is designed to work well in Obsidian -- good markdown, YAML frontmatter,
-branch-note convention, internal links. But everything works without it too.
 
 ## Static site export
 
