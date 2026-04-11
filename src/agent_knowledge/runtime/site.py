@@ -648,7 +648,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .sidebar-footer{padding:9px 12px;border-top:1px solid var(--border);flex-shrink:0;font-size:10px;color:var(--muted-2);line-height:1.5}
 
 /* ---- MAIN ---- */
-#main{display:flex;flex-direction:column;overflow:hidden;position:relative}
+#main{display:flex;flex-direction:column;overflow:hidden;position:relative;height:100%}
 
 /* ---- TOPBAR ---- */
 #topbar{height:46px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;z-index:6;position:relative}
@@ -663,7 +663,8 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .tab-btn.active{color:var(--accent);border-color:var(--mem-border);background:var(--mem-bg)}
 
 /* ---- CONTENT ---- */
-#content{flex:1;overflow-y:auto;padding:0}
+#view-wrap{flex:1;position:relative;overflow:hidden}
+#content{position:absolute;top:0;left:0;right:0;bottom:0;overflow-y:auto;padding:0}
 .view-wrap{max-width:900px;margin:0 auto;padding:28px 32px}
 
 /* ---- OVERVIEW ---- */
@@ -775,7 +776,7 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
 .badge-onboarding-pending{background:var(--warn-bg);color:var(--warn-fg);border:1px solid var(--warn-fg);font-size:9px}
 
 /* ---- GRAPH VIEW ---- */
-#graph-container{position:absolute;top:46px;left:0;right:0;bottom:0;display:none;background:var(--bg);z-index:5;overflow:hidden}
+#graph-container{position:absolute;top:0;left:0;right:0;bottom:0;display:none;background:var(--bg);z-index:5;overflow:hidden}
 #graph-container.visible{display:block}
 #graph-canvas{position:absolute;top:0;left:0;width:100%;height:100%;display:block;cursor:grab}
 #graph-canvas.gdrag{cursor:grabbing}
@@ -844,8 +845,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
         <button class="tab-btn" data-view="graph" onclick="nav('graph')">Graph</button>
       </div>
     </div>
+    <div id="view-wrap">
     <div id="content"></div>
-    <!-- Graph container: persists across view switches, overlays #content -->
+    <!-- Graph container: same layer as #content, shown/hidden by toggling display -->
     <div id="graph-container">
       <canvas id="graph-canvas"></canvas>
       <div id="gc-bar">
@@ -882,8 +884,9 @@ body{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSy
       </div>
       <div id="gc-empty" style="display:none">No nodes to display.<br>Adjust filters or run agent-knowledge sync first.</div>
     </div>
-  </div>
-</div>
+    </div><!-- /view-wrap -->
+  </div><!-- /main -->
+</div><!-- /root -->
 
 <script>
 const DATA = __DATA_JSON__;
@@ -1217,15 +1220,19 @@ function showGraph(){
   const gc = document.getElementById('graph-container');
   if(!gc) return;
   gc.classList.add('visible');
-  if(!_graphInited){
-    _graphInited = true;
-    _initGraph();
-  } else {
-    _resizeGraph();
-    if(!_simRunning) _renderGraph();
-  }
   setTopbar('graph');
   setSidebarActive(null);
+  // Defer canvas work one frame so the browser can compute layout
+  // after display:none → display:block (clientWidth/Height need reflow)
+  requestAnimationFrame(()=>{
+    if(!_graphInited){
+      _graphInited = true;
+      _initGraph();
+    } else {
+      _resizeGraph();
+      if(!_simRunning) _renderGraph();
+    }
+  });
 }
 
 function _initGraph(){
@@ -1286,7 +1293,8 @@ function _computeLayout(){
 
   if(proj){ proj.x=0; proj.y=0; }
 
-  const BR = Math.max(180, branches.length*40);
+  // Keep branch ring compact — cap radius so nodes stay on-screen
+  const BR = Math.min(220, Math.max(120, branches.length*28));
   branches.forEach((b,i)=>{
     const a = (i/Math.max(1,branches.length))*2*Math.PI - Math.PI/2;
     b.x = Math.cos(a)*BR; b.y = Math.sin(a)*BR;
@@ -1294,26 +1302,26 @@ function _computeLayout(){
       _gEdges.some(e=>e.src===b&&e.tgt===n));
     leaves.forEach((lf,li)=>{
       const la = a + (li - leaves.length/2 + 0.5)*0.5;
-      lf.x = b.x + Math.cos(la)*90;
-      lf.y = b.y + Math.sin(la)*90;
+      lf.x = b.x + Math.cos(la)*70;
+      lf.y = b.y + Math.sin(la)*70;
     });
   });
 
   decisions.forEach((d,i)=>{
     const a = (i/Math.max(1,decisions.length))*Math.PI;
-    d.x = Math.cos(a)*70; d.y = -BR - 120 + Math.sin(a)*50;
+    d.x = Math.cos(a)*60; d.y = -BR - 90 + Math.sin(a)*40;
   });
 
-  const evX = BR + 120;
+  const evX = BR + 100;
   evidence.forEach((e,i)=>{
-    e.x = evX + (i%2)*40;
-    e.y = (i - evidence.length/2)*45;
+    e.x = evX + (i%2)*35;
+    e.y = (i - evidence.length/2)*40;
   });
 
-  const outX = -BR - 120;
+  const outX = -BR - 100;
   outputs.forEach((o,i)=>{
-    o.x = outX - (i%2)*40;
-    o.y = (i - outputs.length/2)*45;
+    o.x = outX - (i%2)*35;
+    o.y = (i - outputs.length/2)*40;
   });
 }
 
@@ -1385,10 +1393,15 @@ function _resizeGraph(){
   if(!_gCanvas) return;
   const cnt = _gCanvas.parentElement;
   const dpr = window.devicePixelRatio||1;
-  const W = cnt.clientWidth, H = cnt.clientHeight;
+  let W = cnt.clientWidth, H = cnt.clientHeight;
+  // If dimensions are zero the browser hasn't done layout yet — retry next frame
+  if(!W || !H){
+    requestAnimationFrame(_resizeGraph);
+    return;
+  }
   _gCanvas.width = W*dpr; _gCanvas.height = H*dpr;
   _gCanvas.style.width = W+'px'; _gCanvas.style.height = H+'px';
-  if(!_graphInited || _simTick===0){ _gPanX=W/2; _gPanY=H/2; }
+  if(_simTick===0){ _gPanX=W/2; _gPanY=H/2; }
   _renderGraph();
 }
 

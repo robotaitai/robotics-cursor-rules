@@ -61,14 +61,38 @@ Rules:
 - Keep generated views in `Outputs/` -- never treat as canonical truth
 - Do NOT redo onboarding if STATUS.md already shows `onboarding: complete`
 
+## Session Start
+
+If you support shell commands, run at session start:
+
+```bash
+agent-knowledge sync --project .
+```
+
+## Memory Maintenance
+
+After meaningful work, update `./agent-knowledge/Memory/` directly:
+
+1. Edit the relevant branch note (`Memory/cli.md`, `Memory/architecture.md`, etc.)
+   - Update `Current State` with confirmed facts (replace stale entries, no duplicates)
+   - Add a `YYYY-MM-DD -- what changed` line to `Recent Changes`
+2. Update `Memory/MEMORY.md` if branch one-line summaries changed
+3. Run `agent-knowledge sync --project .` to propagate and refresh indexes
+
+Write to memory when:
+- A new feature, command, or module was completed
+- An architectural decision was made or changed
+- A gotcha, constraint, or pattern was confirmed
+- Test coverage or CI configuration changed
+
+Skip writeback for read-only sessions, speculative changes, or session-specific context.
+
 ## Ongoing Maintenance
 
 After onboarding is complete, during normal work:
-- Update `Memory/` when stable facts change (decisions, conventions, gotchas)
-- Record architectural decisions in `Memory/decisions/`
-- Run `agent-knowledge update` after significant changes
-- Keep `Evidence/` and `Outputs/` separate from `Memory/`
+- Keep `Evidence/` and `Outputs/` separate from `Memory/` (never promote)
 - Do NOT rebuild the knowledge tree every session
+- Record architectural decisions in `Memory/decisions/`
 
 ## Knowledge Structure
 

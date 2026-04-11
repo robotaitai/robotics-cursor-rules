@@ -1,6 +1,6 @@
 ---
 area: testing
-updated: 2026-04-10
+updated: 2026-04-11
 ---
 
 # Testing
@@ -11,7 +11,7 @@ Test strategy for packaging validation and CLI correctness.
 ## Current State
 
 - Framework: `pytest` (dev dependency).
-- 118 tests across 2 files: `tests/test_packaging.py` and `tests/test_cli.py`.
+- **128 tests** across 2 files: `tests/test_packaging.py` and `tests/test_cli.py`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`) -- ubuntu-latest + macos-latest, Python 3.10/3.12/3.13.
   - `test` job: runs `pytest` with editable install.
   - `build` job: builds wheel, installs from wheel, runs CLI smoke tests (`--help`, `--version`, subcommand `--help`).
@@ -26,7 +26,7 @@ Test strategy for packaging validation and CLI correctness.
 
 ### test_cli.py
 - Top-level `--help` and `--version`.
-- Parametrized `--help` for all 20 subcommands (including `search`, `index`, `export-html`, `view`, `clean-import`, `export-canvas`, `refresh-system`).
+- Parametrized `--help` for all 21 subcommands (including `search`, `index`, `export-html`, `view`, `clean-import`, `export-canvas`, `refresh-system`, `backfill-history`).
 - `init --help` contains `--slug`.
 - `init --dry-run` exits 0 and does not create files.
 - `doctor --json` output is valid JSON with `"script": "doctor"`.
@@ -62,6 +62,7 @@ Test strategy for packaging validation and CLI correctness.
 - 2026-04-10: Added 6 new tests for site generator (export-html), replaced old viewer tests (total: 97).
 - 2026-04-10: Added 11 new tests for refresh-system command (total: 108).
 - 2026-04-10: Added 10 new tests for graph view in site export (total: 118).
+- 2026-04-11: Added 9 new tests for backfill-history / history layer, +1 for new subcommand help (total: 128).
 
 ## Open Questions
 

@@ -99,6 +99,25 @@ def init(
                 for action in actions:
                     click.echo(action, err=True)
 
+    # Lightweight history backfill — runs automatically for existing repos
+    if not dry_run:
+        from agent_knowledge.runtime.history import run_backfill
+
+        vault_dir = repo_path / "agent-knowledge"
+        if vault_dir.is_dir():
+            result = run_backfill(
+                repo_path,
+                vault_dir,
+                project_slug=slug,
+                dry_run=False,
+            )
+            if not json_mode and result["action"] == "backfilled":
+                click.echo(
+                    f"  History: backfilled {result['events_written']} events "
+                    f"({result['git_commits']} commits, {result['git_tags']} tags)",
+                    err=True,
+                )
+
     if not json_mode:
         prompt = "Read AGENTS.md and ./agent-knowledge/STATUS.md, then onboard this project."
         border = "+" + "-" * (len(prompt) + 2) + "+"
@@ -275,10 +294,12 @@ def doctor(project: str, dry_run: bool, json_mode: bool) -> None:
     `agent-knowledge refresh-system` when the framework version has changed.
     """
     from agent_knowledge.runtime.refresh import is_stale
+    from agent_knowledge.runtime.history import history_exists
 
     repo_root = Path(project).resolve()
-    stale, prior, current = is_stale(repo_root)
 
+    # Framework version staleness check
+    stale, prior, current = is_stale(repo_root)
     if stale and not json_mode:
         if prior:
             click.secho(
@@ -294,6 +315,16 @@ def doctor(project: str, dry_run: bool, json_mode: bool) -> None:
                 fg="yellow",
                 err=True,
             )
+        click.echo("", err=True)
+
+    # History existence check
+    vault_dir = repo_root / "agent-knowledge"
+    if vault_dir.is_dir() and not history_exists(vault_dir) and not json_mode:
+        click.secho(
+            "Note: no History/ layer found. Run: agent-knowledge backfill-history",
+            fg="cyan",
+            err=True,
+        )
         click.echo("", err=True)
 
     args = ["--project", project]
@@ -694,6 +725,90 @@ def export_canvas(project: str, output: str | None, dry_run: bool) -> None:
     else:
         click.echo(f"{action}: {path}", err=True)
         click.echo("  Open in Obsidian: Core plugins > Canvas", err=True)
+
+
+# -- backfill-history ------------------------------------------------------ #
+
+
+@main.command("backfill-history")
+@click.option("--project", default=".", type=click.Path(exists=True), help="Project repo root.")
+@click.option("--dry-run", is_flag=True, help="Preview what would be written without writing.")
+@click.option("--json", "json_mode", is_flag=True, help="Output JSON summary only.")
+@click.option("--force", is_flag=True, hidden=True, help="Re-run even if up to date.")
+def backfill_history(project: str, dry_run: bool, json_mode: bool, force: bool) -> None:
+    """Backfill lightweight project history from git and integration artifacts.
+
+    Creates History/events.ndjson, History/history.md, and a compact timeline
+    note. Runs automatically during `agent-knowledge init` on existing repos.
+
+    History records what happened over time (milestones, releases, integrations)
+    without replacing Memory/ or duplicating git. Safe to run multiple times.
+
+    \b
+    Examples:
+      agent-knowledge backfill-history
+      agent-knowledge backfill-history --dry-run
+      agent-knowledge backfill-history --json
+    """
+    import json as json_mod
+
+    from agent_knowledge.runtime.history import run_backfill
+
+    repo_root = Path(project).resolve()
+    vault_dir = repo_root / "agent-knowledge"
+
+    if not vault_dir.is_dir():
+        msg = {"error": "No agent-knowledge vault found. Run: agent-knowledge init"}
+        if json_mode:
+            click.echo(json_mod.dumps(msg))
+        else:
+            click.secho(msg["error"], fg="red", err=True)
+        raise SystemExit(1)
+
+    slug = repo_root.name
+    yaml_path = repo_root / ".agent-project.yaml"
+    if yaml_path.is_file():
+        for line in yaml_path.read_text(errors="replace").splitlines():
+            m = __import__("re").match(r"^slug:\s*(.+)$", line.strip())
+            if m:
+                slug = m.group(1).strip().strip("\"'")
+                break
+
+    result = run_backfill(repo_root, vault_dir, project_slug=slug, dry_run=dry_run, force=force)
+
+    if json_mode:
+        click.echo(json_mod.dumps(result, indent=2))
+        return
+
+    action = result["action"]
+    if action == "up-to-date":
+        click.secho(f"History is up to date. (slug: {slug})", bold=True, err=True)
+    elif action == "dry-run":
+        click.echo(f"[dry-run] would backfill for: {slug}", err=True)
+    else:
+        click.secho(
+            f"Backfilled: {result['events_written']} new events, "
+            f"{result['events_skipped']} skipped.",
+            bold=True,
+            err=True,
+        )
+
+    click.echo("", err=True)
+
+    if result["git_commits"]:
+        click.echo(
+            f"  git: {result['git_commits']} total commits, "
+            f"{result['git_tags']} tags, "
+            f"started {result['git_first_commit'] or 'unknown'}",
+            err=True,
+        )
+    if result["integrations"]:
+        click.echo(f"  integrations: {', '.join(result['integrations'])}", err=True)
+    if result["changes"] and not dry_run:
+        for c in result["changes"]:
+            click.echo(f"  wrote: {c}", err=True)
+
+    click.echo("", err=True)
 
 
 # -- refresh-system -------------------------------------------------------- #

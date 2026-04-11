@@ -33,9 +33,14 @@ def sync_memory_branches(
     *,
     dry_run: bool = False,
 ) -> list[str]:
-    """Copy agent_docs/memory/*.md into the vault's Memory/ branch.
+    """Bidirectional sync between agent_docs/memory/ and vault Memory/.
 
-    Only copies files that are newer or missing in the vault.
+    Always copies whichever side is newer, in both directions:
+    - vault Memory/ newer than agent_docs/memory/ -> copy vault -> agent_docs
+    - agent_docs/memory/ newer than vault -> copy agent_docs -> vault
+    - vault has files not in agent_docs -> copy vault -> agent_docs (preserves
+      changes written directly to the vault by Claude, Codex, or any other agent)
+
     Returns a list of action strings for reporting.
     """
     src_dir = repo / "agent_docs" / "memory"
@@ -50,6 +55,19 @@ def sync_memory_branches(
         actions.append("skip: agent-knowledge/Memory/ not found")
         return actions
 
+    import shutil
+
+    # Pass 1: vault -> agent_docs for files where vault is newer or agent_docs missing
+    for vault_file in sorted(dst_dir.rglob("*.md")):
+        rel = vault_file.relative_to(dst_dir)
+        local_file = src_dir / rel
+        if not local_file.exists() or vault_file.stat().st_mtime > local_file.stat().st_mtime:
+            if not dry_run:
+                local_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(vault_file, local_file)
+            actions.append(f"pulled: {rel} (vault -> agent_docs)")
+
+    # Pass 2: agent_docs -> vault for files where agent_docs is newer
     for src_file in sorted(src_dir.rglob("*.md")):
         rel = src_file.relative_to(src_dir)
         dst_file = dst_dir / rel

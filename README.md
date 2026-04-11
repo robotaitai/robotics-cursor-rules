@@ -115,6 +115,7 @@ from the command line or a hook.
 | `clean-import <url>` | Import a URL or HTML file as cleaned evidence |
 | `refresh-system` | Refresh integration files to the current framework version |
 | `export-canvas` | Export vault as an Obsidian Canvas file (optional) |
+| `backfill-history` | Backfill lightweight project history from git |
 | `measure-tokens` | Estimate context token savings |
 
 All write commands support `--dry-run`. Use `--json` for machine-readable output.
@@ -234,6 +235,36 @@ Multiple tools in the same repo work together.
 export AGENT_KNOWLEDGE_HOME=~/my-knowledge
 agent-knowledge init
 ```
+
+## Project history
+
+`init` automatically backfills a lightweight history layer when run on an existing repo.
+You can also run it explicitly at any time:
+
+```bash
+agent-knowledge backfill-history
+```
+
+This creates `History/` inside the vault with:
+
+- `events.ndjson` — compact append-only event log (one JSON object per line)
+- `history.md` — human-readable entrypoint with recent milestones
+- `timeline/` — sparse milestone notes for significant events (init, releases)
+
+History records **what happened** over time — releases, detected integrations, sync
+events. It is not a git replacement and not a second source of truth. Current truth
+lives in `Memory/`.
+
+| Layer | Role |
+|-------|------|
+| `Memory/` | What is true now (curated, authoritative) |
+| `History/` | What happened over time (lightweight diary) |
+| `Evidence/` | Imported/extracted material (non-canonical) |
+| `Outputs/` | Generated helper artifacts |
+| `Sessions/` | Temporary working state |
+
+History is idempotent. Run `backfill-history --dry-run` to preview without writing.
+`doctor` warns when `History/` is missing.
 
 ## Keeping up to date
 

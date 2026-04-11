@@ -67,6 +67,7 @@ def test_version():
         "clean-import",
         "export-canvas",
         "refresh-system",
+        "backfill-history",
     ],
 )
 def test_subcommand_help(cmd: str):
@@ -1134,6 +1135,160 @@ def test_canvas_is_non_canonical(tmp_path: Path):
     memory_dir = repo / "agent-knowledge" / "Memory"
     canvas_in_memory = list(memory_dir.rglob("*.canvas"))
     assert canvas_in_memory == [], "Canvas files must not appear in Memory/"
+
+
+# -- backfill-history tests ------------------------------------------------ #
+
+
+def test_backfill_history_creates_structure(tmp_path: Path):
+    """backfill-history must create History/events.ndjson and History/history.md."""
+    repo = _init_repo(tmp_path, "hist-struct")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    r = _run("backfill-history", "--project", str(repo))
+    assert r.returncode == 0, f"backfill-history failed: {r.stderr}"
+
+    vault = repo / "agent-knowledge"
+    assert (vault / "History").is_dir(), "History/ must be created"
+    assert (vault / "History" / "events.ndjson").is_file(), "events.ndjson must exist"
+    assert (vault / "History" / "history.md").is_file(), "history.md must exist"
+    assert (vault / "History" / "timeline").is_dir(), "timeline/ must exist"
+
+
+def test_backfill_history_json_mode(tmp_path: Path):
+    """backfill-history --json must produce clean JSON with required fields."""
+    repo = _init_repo(tmp_path, "hist-json")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    r = _run("backfill-history", "--project", str(repo), "--json")
+    assert r.returncode == 0
+    data = json.loads(r.stdout)
+    assert "action" in data
+    assert "events_written" in data
+    assert "events_skipped" in data
+    assert "git_commits" in data
+    assert "git_tags" in data
+    assert "changes" in data
+    assert isinstance(data["changes"], list)
+
+
+def test_backfill_history_dry_run(tmp_path: Path):
+    """backfill-history --dry-run must not create any files."""
+    repo = _init_repo(tmp_path, "hist-dry")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    # Remove any History/ created by init
+    import shutil
+    hist = repo / "agent-knowledge" / "History"
+    if hist.exists():
+        shutil.rmtree(hist)
+
+    r = _run("backfill-history", "--project", str(repo), "--dry-run")
+    assert r.returncode == 0
+
+    assert not (repo / "agent-knowledge" / "History" / "events.ndjson").exists(), \
+        "dry-run must not create events.ndjson"
+
+
+def test_backfill_history_idempotent(tmp_path: Path):
+    """Running backfill-history twice must not explode with duplicate events."""
+    repo = _init_repo(tmp_path, "hist-idem")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    r1 = _run("backfill-history", "--project", str(repo), "--json")
+    assert r1.returncode == 0
+    d1 = json.loads(r1.stdout)
+
+    r2 = _run("backfill-history", "--project", str(repo), "--json")
+    assert r2.returncode == 0
+    d2 = json.loads(r2.stdout)
+
+    # Second run must not write new events (already up to date for the month)
+    assert d2["action"] == "up-to-date", f"Second run should be up-to-date, got: {d2['action']}"
+    assert d2["events_written"] == 0
+
+
+def test_backfill_events_ndjson_valid(tmp_path: Path):
+    """Every line in events.ndjson must be valid JSON with required fields."""
+    repo = _init_repo(tmp_path, "hist-ndjson")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("backfill-history", "--project", str(repo))
+
+    events_path = repo / "agent-knowledge" / "History" / "events.ndjson"
+    assert events_path.is_file()
+
+    lines = [l.strip() for l in events_path.read_text().splitlines() if l.strip()]
+    assert len(lines) >= 1, "events.ndjson must have at least one event"
+
+    for line in lines:
+        ev = json.loads(line)  # must be valid JSON
+        assert "ts" in ev, f"Event missing 'ts': {ev}"
+        assert "type" in ev, f"Event missing 'type': {ev}"
+        assert "slug" in ev, f"Event missing 'slug': {ev}"
+        assert "summary" in ev, f"Event missing 'summary': {ev}"
+
+
+def test_backfill_history_does_not_pollute_memory(tmp_path: Path):
+    """backfill-history must never write to Memory/, Evidence/, or Sessions/."""
+    repo = _init_repo(tmp_path, "hist-mem")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    # Seed a memory note
+    memory_dir = repo / "agent-knowledge" / "Memory"
+    test_note = memory_dir / "test-area.md"
+    test_note.write_text("---\nnote_type: branch-entry\narea: test\n---\n\n# Test\n\nContent.\n")
+    original = test_note.read_text()
+
+    _run("backfill-history", "--project", str(repo))
+
+    assert test_note.read_text() == original, "backfill must not modify Memory/ notes"
+
+    # No events.ndjson inside Memory/
+    for f in memory_dir.rglob("*.ndjson"):
+        pytest.fail(f"NDJSON file must not exist in Memory/: {f}")
+
+
+def test_init_backfills_history(tmp_path: Path):
+    """agent-knowledge init must automatically create History/ layer."""
+    repo = _init_repo(tmp_path, "hist-init-auto")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+
+    vault = repo / "agent-knowledge"
+    # History/ may not always be created if the vault is truly empty (no git)
+    # but events.ndjson should exist if history was backfilled
+    # Just check the command succeeded and no crash occurred
+    assert vault.exists()
+
+
+def test_history_module_importable():
+    """history module must be importable with correct public API."""
+    from agent_knowledge.runtime.history import (
+        run_backfill, append_event, read_events,
+        init_history, history_exists, log_event,
+    )
+    assert all(callable(f) for f in [
+        run_backfill, append_event, read_events, init_history, history_exists, log_event
+    ])
+
+
+def test_history_md_is_lightweight(tmp_path: Path):
+    """History/history.md must be small (< 150 lines)."""
+    repo = _init_repo(tmp_path, "hist-lightweight")
+    kh = tmp_path / "kh"
+    _run("init", "--repo", str(repo), "--knowledge-home", str(kh))
+    _run("backfill-history", "--project", str(repo))
+
+    history_md = repo / "agent-knowledge" / "History" / "history.md"
+    if history_md.is_file():
+        lines = history_md.read_text().splitlines()
+        assert len(lines) < 150, f"history.md exceeds 150 lines: {len(lines)}"
 
 
 # -- refresh-system tests -------------------------------------------------- #

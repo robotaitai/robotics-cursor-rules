@@ -1,49 +1,89 @@
 ---
+note_type: durable-branch
 area: cli
-updated: 2026-04-08
+updated: 2026-04-11
+tags:
+  - agent-knowledge
+  - cli
 ---
 
 # CLI
 
-## Purpose
 Design and implementation of the `agent-knowledge` command-line interface.
 
-## Current State
+## Framework
 
-- Framework: `click` with a `@click.group()` top-level and 13 subcommands.
-- Subcommands: init, setup, bootstrap, import, update, doctor, validate, ship, global-sync, graphify-sync, compact, measure-tokens.
-- Pattern: thin Python wrappers that parse CLI args, then delegate to bundled shell scripts via `run_bash_script()` / `run_python_script()` from `runtime/shell.py`.
-- `setup` is pure Python (replaced root `install.sh`): symlinks global Cursor rules/skills and runs Claude config install.
-- Common flags: `--dry-run`, `--json`, `--force` propagated via `_add_common_flags()`.
-- `--summary-file` on `update` command (hidden) supports hook integration.
-- `measure-tokens` uses `context_settings={"allow_interspersed_args": False}` so `--help` and subcommand args pass through to the delegated `measure-token-savings.py` script instead of being consumed by click.
+Built on [[stack|click >= 8.0]] with a `@click.group()` top-level.
 
-### init command (zero-arg)
-- `--slug` defaults to sanitized repo directory name (`_sanitize_slug` helper).
-- `--repo` defaults to `.` (cwd).
-- `--knowledge-home` defaults from `AGENT_KNOWLEDGE_HOME` env var or `~/agent-os/projects`.
-- Auto-detects Cursor/Claude/Codex integrations and installs bridge files (via `runtime/integrations.py`).
-- `--no-integrations` flag to skip auto-detection.
-- Prints a cyan-bordered "flashy" prompt after setup suggesting the user's next step:
-  `Read AGENTS.md and ./agent-knowledge/STATUS.md, then onboard this project.`
-- Uses `click.secho` with `fg="cyan"` and `bold=True` for styled output.
+## Subcommands (21)
 
-## Recent Changes
+| Command | Description | Delegates to |
+|---------|-------------|-------------|
+| `init` | Zero-arg project setup + history backfill | `install-project-links.sh` + integrations + history.py |
+| `sync` | Memory sync, session rollup, git evidence, capture, index | `runtime/sync.py` |
+| `setup` | Global Cursor rules/skills install | pure Python |
+| `bootstrap` | Repair memory tree | `bootstrap-memory-tree.sh` |
+| `import` | Import repo evidence | `import-agent-history.sh` |
+| `update` | Sync project changes | `update-knowledge.sh` |
+| `doctor` | Validate setup, staleness warnings | `doctor.sh` + Python checks |
+| `validate` | Validate knowledge layout | `validate-knowledge.sh` |
+| `ship` | Validate, sync, commit, push | `ship.sh` |
+| `global-sync` | Import global tooling config | `global-knowledge-sync.sh` |
+| `graphify-sync` | Import graph artifacts | `graphify-sync.sh` |
+| `compact` | Prune stale memory and old captures | `compact-memory.sh` |
+| `measure-tokens` | Token savings estimation | `measure-token-savings.py` |
+| `index` | Regenerate knowledge index JSON + md | `runtime/index.py` |
+| `search <query>` | Search knowledge index, Memory-first | `runtime/index.py` |
+| `export-html` | Build polished static HTML site | `runtime/site.py` |
+| `view` | Build site and open in browser | `runtime/site.py` + webbrowser |
+| `clean-import <url>` | Import URL/HTML as cleaned evidence | `runtime/capture.py` |
+| `export-canvas` | Export vault as Obsidian Canvas | `runtime/site.py` |
+| `refresh-system` | Refresh integration files to current framework version | `runtime/refresh.py` |
+| `backfill-history` | Backfill lightweight history from git | `runtime/history.py` |
 
-- 2026-04-08: Created CLI with 11 subcommands.
-- 2026-04-08: Added `setup` command (pure Python, replaced root `install.sh`).
-- 2026-04-08: Made `init` zero-arg with slug inference and auto-detection.
-- 2026-04-08: Added multi-tool integration detection/install to `init`.
-- 2026-04-08: Added cyan-bordered prompt output after `init`.
-- 2026-04-08: Fixed `measure-tokens --help` passthrough with `allow_interspersed_args=False`.
+## init (zero-arg)
 
-## Decisions
+- Infers slug from directory name, detects integrations automatically
+- After setup: **auto-calls `run_backfill()`** from `history.py` if vault exists
+- Prints cyan-bordered prompt with next-step suggestion
 
-- Scripts are invoked via subprocess, not reimplemented in Python. **Why:** The scripts are complex, battle-tested, and self-contained. Rewriting would introduce bugs for no gain. **How to apply:** Only rewrite a script if it fundamentally can't work from the installed package.
-- `measure-tokens` passes all args unprocessed to the underlying Python script. **Why:** The script has its own argparse subcommands (compare, log-run, summarize-log) with their own `--help`.
-- `setup` was implemented in pure Python (not a shell wrapper). **Why:** The old `install.sh` was just symlinking and calling another script; Python handles this cleanly and avoids shipping a root-level script.
-- `init` defaults were chosen to eliminate friction: the normal path is just `agent-knowledge init` with no flags.
+## doctor
 
-## Open Questions
+- Calls `doctor.sh` (bash)
+- **Python pre-check 1**: `refresh.is_stale()` — warns if framework version is behind
+- **Python pre-check 2**: `history.history_exists()` — warns if History/ missing
 
-- None currently.
+## refresh-system
+
+- Refreshes `AGENTS.md`, `.cursor/hooks.json`, `.cursor/rules/agent-knowledge.mdc`, `CLAUDE.md`, `.codex/AGENTS.md`, `STATUS.md`, `.agent-project.yaml`
+- Idempotent: returns "up-to-date" if version already matches
+- Never touches `Memory/`, `Evidence/`, `Sessions/`, `Outputs/`, `History/`
+- Supports `--dry-run`, `--json`
+
+## backfill-history
+
+- Creates `History/events.ndjson`, `History/history.md`, `History/timeline/`
+- Reads git: first commit date, total commits, tags (releases), integration detection
+- One-per-tag for release events; once-per-month for backfill/integration events
+- Supports `--dry-run`, `--json`, `--force`
+
+## export-html
+
+- Reads vault → builds `knowledge.json` → builds `graph.json` → renders `index.html`
+- All data embedded in HTML (no AJAX, works via file://)
+- Views: Overview, Tree/Ontology, Note/detail, Evidence, Graph tab
+- Graph: interactive force-directed canvas, searchable, filterable by type/canonical status
+- Canonical (Memory) vs non-canonical (Evidence, Outputs) clearly badged
+
+## Patterns
+
+- Thin Python wrappers delegate to shell scripts via `subprocess`
+- Pure-Python commands for new features (site, history, refresh, capture, index)
+- Common flags: `--dry-run`, `--json`, `--force`
+- All output to stderr in human mode; stdout is pure JSON in `--json` mode
+
+## See Also
+
+- [[architecture]] -- runtime modules
+- [[stack]] -- click framework, dependencies
+- [[testing]] -- CLI test coverage
