@@ -222,18 +222,26 @@ It is not a git replacement. Current truth lives in `Memory/`.
 
 ## Keeping up to date
 
-After upgrading the CLI, refresh the project integration so hooks, commands,
-and contracts match the installed framework version:
+Two steps: upgrade the CLI, then refresh each project so its integration files
+match the newly installed framework version.
+
+### 1. Upgrade the CLI
 
 ```bash
 pip install -U agent-knowledge-cli
+```
 
+### 2. Refresh project integration
+
+```bash
 # from inside the project:
 agent-knowledge refresh-system
 
-# or point at a specific project:
+# or point at a specific project from anywhere:
 agent-knowledge refresh-system --project /path/to/repo
 ```
+
+Run this in every project that uses agent-knowledge after a CLI upgrade.
 
 `refresh-system` updates all integration files -- Claude settings/commands/contract,
 Cursor hooks/rules/commands, `AGENTS.md` header, Codex config -- and version markers.
