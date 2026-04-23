@@ -321,7 +321,34 @@ def _regenerate_index(repo: Path, *, dry_run: bool = False) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 7. Top-level sync orchestrator
+# 7. History incremental update
+# ---------------------------------------------------------------------------
+
+def _update_history(repo: Path, *, dry_run: bool = False) -> list[str]:
+    """Run an incremental history backfill. Cheap when nothing is new (dedup by tag)."""
+    vault = repo / "agent-knowledge"
+    if not vault.is_dir():
+        return ["  skip: vault not found"]
+
+    try:
+        from .history import run_backfill
+
+        slug = repo.name
+        result = run_backfill(repo, vault, project_slug=slug, dry_run=dry_run)
+        action = result.get("action", "unknown")
+        if action == "backfilled":
+            n = result.get("events_written", 0)
+            return [f"  history: {n} new events written"]
+        elif action == "dry-run":
+            return ["  [dry-run] would update history"]
+        else:
+            return ["  history: up-to-date"]
+    except Exception as exc:
+        return [f"  history: skipped ({exc})"]
+
+
+# ---------------------------------------------------------------------------
+# 8. Top-level sync orchestrator
 # ---------------------------------------------------------------------------
 
 def run_sync(
@@ -336,6 +363,7 @@ def run_sync(
     results["memory-branches"] = sync_memory_branches(repo, dry_run=dry_run)
     results["session-rollup"] = rollup_sessions(repo, dry_run=dry_run)
     results["git-evidence"] = extract_git_log(repo, dry_run=dry_run)
+    results["history"] = _update_history(repo, dry_run=dry_run)
     results["capture"] = _record_sync_capture(
         repo, memory_actions=results["memory-branches"], dry_run=dry_run
     )

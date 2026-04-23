@@ -2,7 +2,7 @@
 note_type: dashboard
 dashboard: session-rollup
 project: agent-knowledge
-last_updated: 2026-04-18
+last_updated: 2026-04-23
 tags:
   - agent-knowledge
   - dashboard
